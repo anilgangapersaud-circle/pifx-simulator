@@ -826,6 +826,11 @@ button[type="submit"]:disabled {
   color: #38a169;
 }
 
+.menu-method.circle {
+  background: #e6fffa;
+  color: #319795;
+}
+
 /* Page Styles */
 .page-container {
   max-width: 1600px;

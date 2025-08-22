@@ -10,6 +10,7 @@ import SignaturesPage from './pages/SignaturesPage';
 import GetTradesPage from './pages/GetTradesPage';
 import GetTradeByIdPage from './pages/GetTradeByIdPage';
 import GetSignaturesPage from './pages/GetSignaturesPage';
+import ContractExecutionPage from './pages/ContractExecutionPage';
 
 
 export interface AppState {
@@ -18,6 +19,7 @@ export interface AppState {
   walletApiKey: string;
   entitySecret: string;
   walletId: string;
+  signingMethod: 'circle' | 'web3';
   // Step responses
   quoteResponse: any;
   tradeResponse: any;
@@ -49,7 +51,8 @@ const SESSION_KEYS = {
   WALLET_API_KEY: 'circle_wallet_api_key',
   ENTITY_SECRET: 'circle_entity_secret',
   WALLET_ID: 'circle_wallet_id',
-  ENVIRONMENT: 'circle_environment'
+  ENVIRONMENT: 'circle_environment',
+  SIGNING_METHOD: 'circle_signing_method'
 };
 
 const getFromSession = (key: string, defaultValue: any) => {
@@ -76,6 +79,7 @@ const clearSession = () => {
     sessionStorage.removeItem(SESSION_KEYS.ENTITY_SECRET);
     sessionStorage.removeItem(SESSION_KEYS.WALLET_ID);
     sessionStorage.removeItem(SESSION_KEYS.ENVIRONMENT);
+    sessionStorage.removeItem(SESSION_KEYS.SIGNING_METHOD);
   } catch (error) {
     console.warn('Failed to clear session storage:', error);
   }
@@ -89,6 +93,7 @@ function AppContent() {
     walletApiKey: getFromSession(SESSION_KEYS.WALLET_API_KEY, ''),
     entitySecret: getFromSession(SESSION_KEYS.ENTITY_SECRET, ''),
     walletId: getFromSession(SESSION_KEYS.WALLET_ID, ''),
+    signingMethod: getFromSession(SESSION_KEYS.SIGNING_METHOD, 'circle'),
     // Step responses
     quoteResponse: null,
     tradeResponse: null,
@@ -129,6 +134,9 @@ function AppContent() {
     if (updates.environment !== undefined) {
       saveToSession(SESSION_KEYS.ENVIRONMENT, updates.environment);
     }
+    if (updates.signingMethod !== undefined) {
+      saveToSession(SESSION_KEYS.SIGNING_METHOD, updates.signingMethod);
+    }
   };
 
   return (
@@ -154,6 +162,7 @@ function AppContent() {
           <Route path="/quotes" element={<QuotesPage state={state} updateState={updateState} />} />
           <Route path="/trades" element={<TradesPage state={state} updateState={updateState} />} />
           <Route path="/signatures" element={<SignaturesPage state={state} updateState={updateState} />} />
+          <Route path="/contract-execution" element={<ContractExecutionPage state={state} updateState={updateState} />} />
           <Route path="/get-trades" element={<GetTradesPage state={state} updateState={updateState} />} />
           <Route path="/get-trade" element={<GetTradeByIdPage state={state} updateState={updateState} />} />
           <Route path="/workflow" element={<GetSignaturesPage state={state} updateState={updateState} />} />

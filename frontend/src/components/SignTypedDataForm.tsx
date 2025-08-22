@@ -302,14 +302,6 @@ const SignTypedDataForm: React.FC<SignTypedDataFormProps> = ({ state, updateStat
     // Clear any previous signing errors
     updateState({ signingError: null, signingResponse: null });
     
-    if (!state.walletApiKey || !state.entitySecret) {
-      updateState({ 
-        signingError: 'Please configure your Wallet API Key and Entity Secret in Settings',
-        signingResponse: null 
-      });
-      return;
-    }
-
     if (!formData.typedData) {
       updateState({ 
         signingError: 'Please enter valid JSON for typed data',
@@ -318,23 +310,45 @@ const SignTypedDataForm: React.FC<SignTypedDataFormProps> = ({ state, updateStat
       return;
     }
 
-    if (!formData.walletId.trim()) {
-      updateState({ 
-        signingError: 'Please enter a wallet ID',
-        signingResponse: null 
-      });
-      return;
+    // Validation based on signing method
+    if (state.signingMethod === 'circle') {
+      if (!state.walletApiKey || !state.entitySecret) {
+        updateState({ 
+          signingError: 'Please configure your Wallet API Key and Entity Secret in Settings for Circle SDK signing',
+          signingResponse: null 
+        });
+        return;
+      }
+
+      if (!formData.walletId.trim()) {
+        updateState({ 
+          signingError: 'Please enter a wallet ID for Circle SDK signing',
+          signingResponse: null 
+        });
+        return;
+      }
     }
 
     updateState({ signingLoading: true, signingError: null });
 
     try {
-      const response = await axios.post('http://localhost:3001/api/wallet/sign/typedData', {
-        walletApiKey: state.walletApiKey,
-        entitySecret: state.entitySecret,
-        walletId: formData.walletId,
-        typedData: formData.typedData
-      });
+      let response;
+
+      if (state.signingMethod === 'circle') {
+        // Circle SDK signing
+        response = await axios.post('http://localhost:3001/api/wallet/sign/typedData', {
+          walletApiKey: state.walletApiKey,
+          entitySecret: state.entitySecret,
+          walletId: formData.walletId,
+          typedData: formData.typedData
+        });
+      } else {
+        // Web3.js signing with wallet generation
+        response = await axios.post('http://localhost:3001/api/wallet/generateAndSign', {
+          typedData: formData.typedData,
+          generateWallet: true // Always generate a new wallet for signing
+        });
+      }
 
       updateState({ 
         signingResponse: response.data, 
@@ -374,7 +388,52 @@ const SignTypedDataForm: React.FC<SignTypedDataFormProps> = ({ state, updateStat
   return (
     <div className="form-container">
       <h2>Sign Typed Data</h2>
-      <p>Sign EIP-712 typed data using Circle's Programmable Wallets SDK</p>
+      <div style={{ marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.75rem' }}>
+          <span style={{ fontWeight: 'bold', color: '#2d3748' }}>Signing Method:</span>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button
+              type="button"
+              onClick={() => updateState({ signingMethod: 'circle' })}
+              style={{
+                padding: '0.5rem 1rem',
+                border: `2px solid ${state.signingMethod === 'circle' ? '#667eea' : '#e2e8f0'}`,
+                backgroundColor: state.signingMethod === 'circle' ? '#667eea' : 'white',
+                color: state.signingMethod === 'circle' ? 'white' : '#4a5568',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontWeight: '500',
+                fontSize: '0.9rem'
+              }}
+            >
+              🔵 Circle SDK
+            </button>
+            <button
+              type="button"
+              onClick={() => updateState({ signingMethod: 'web3' })}
+              style={{
+                padding: '0.5rem 1rem',
+                border: `2px solid ${state.signingMethod === 'web3' ? '#38a169' : '#e2e8f0'}`,
+                backgroundColor: state.signingMethod === 'web3' ? '#38a169' : 'white',
+                color: state.signingMethod === 'web3' ? 'white' : '#4a5568',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontWeight: '500',
+                fontSize: '0.9rem'
+              }}
+            >
+              🧪 Web3.js + Ethers
+            </button>
+          </div>
+        </div>
+        
+        <p style={{ margin: 0, fontSize: '0.95rem', color: '#718096' }}>
+          {state.signingMethod === 'circle' 
+            ? 'Sign EIP-712 typed data using Circle\'s Programmable Wallets SDK with your managed wallet.'
+            : 'Generate a new wallet and sign EIP-712 typed data using Web3.js + Ethers.js.'
+          }
+        </p>
+      </div>
       {hasPresignData && typedDataText && (
         <div style={{ 
           background: justAutoLoaded ? '#e6fffa' : '#f0fff4', 
@@ -417,25 +476,52 @@ const SignTypedDataForm: React.FC<SignTypedDataFormProps> = ({ state, updateStat
           </small>
         </div>
       )}
-      <p><small><strong>Note:</strong> The typed data will be serialized as a JSON string and sent to Circle's API in the correct format.</small></p>
+      <p>
+        <small>
+          <strong>Note:</strong> {state.signingMethod === 'circle' 
+            ? 'The typed data will be serialized as a JSON string and sent to Circle\'s API in the correct format.'
+            : 'The typed data will be signed using a newly generated wallet with Web3.js and Ethers.js libraries.'
+          }
+        </small>
+      </p>
       
       <form onSubmit={handleSubmit} className="api-form">
-        <div className="form-group">
-          <label htmlFor="walletId">Wallet ID *</label>
-          <input
-            type="text"
-            id="walletId"
-            value={formData.walletId}
-            onChange={(e) => handleInputChange('walletId', e.target.value)}
-            placeholder="Enter wallet ID (or set in Settings)"
-            required
-          />
-          {state.walletId && formData.walletId === state.walletId && (
-            <small style={{ color: '#38a169' }}>
-              ✓ Auto-populated from settings
-            </small>
-          )}
-        </div>
+        {state.signingMethod === 'circle' && (
+          <div className="form-group">
+            <label htmlFor="walletId">Wallet ID *</label>
+            <input
+              type="text"
+              id="walletId"
+              value={formData.walletId}
+              onChange={(e) => handleInputChange('walletId', e.target.value)}
+              placeholder="Enter wallet ID (or set in Settings)"
+              required
+            />
+            {state.walletId && formData.walletId === state.walletId && (
+              <small style={{ color: '#38a169' }}>
+                ✓ Auto-populated from settings
+              </small>
+            )}
+          </div>
+        )}
+        
+        {state.signingMethod === 'web3' && (
+          <div style={{ 
+            backgroundColor: '#e6fffa', 
+            border: '1px solid #319795',
+            borderRadius: '6px', 
+            padding: '1rem',
+            marginBottom: '1rem'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <span style={{ fontSize: '1.2rem', marginRight: '0.5rem' }}>🧪</span>
+              <h4 style={{ margin: 0, color: '#319795' }}>Web3.js Wallet Generation</h4>
+            </div>
+            <p style={{ margin: 0, fontSize: '0.9rem', color: '#4a5568' }}>
+              A new wallet will be automatically generated for signing. You'll receive the wallet address and private key in the response.
+            </p>
+          </div>
+        )}
 
         <div className="form-group">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
@@ -548,7 +634,12 @@ const SignTypedDataForm: React.FC<SignTypedDataFormProps> = ({ state, updateStat
           className="submit-button"
           disabled={state.signingLoading}
         >
-          {state.signingLoading ? 'Signing...' : 'Sign Typed Data'}
+          {state.signingLoading 
+            ? 'Signing...' 
+            : state.signingMethod === 'circle' 
+              ? '🔵 Sign with Circle SDK' 
+              : '🧪 Generate Wallet & Sign'
+          }
         </button>
       </form>
     </div>
