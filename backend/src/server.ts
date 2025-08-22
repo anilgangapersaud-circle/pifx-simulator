@@ -221,13 +221,6 @@ app.post('/api/wallet/sign/typedData', async (req, res) => {
       });
     }
 
-    // Validate EIP712Domain is present in types
-    if (!typedData.types.EIP712Domain) {
-      return res.status(400).json({
-        error: 'typedData.types must include EIP712Domain definition'
-      });
-    }
-
     // Log the request for debugging (remove in production)
     console.log('Sign Typed Data Request:', {
       walletId: requestBody.walletId,
