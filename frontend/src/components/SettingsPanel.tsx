@@ -1,0 +1,139 @@
+import React from 'react';
+
+interface SettingsPanelProps {
+  isOpen: boolean;
+  onClose: () => void;
+  apiKey: string;
+  onApiKeyChange: (apiKey: string) => void;
+  walletApiKey: string;
+  onWalletApiKeyChange: (walletApiKey: string) => void;
+  entitySecret: string;
+  onEntitySecretChange: (entitySecret: string) => void;
+  walletId: string;
+  onWalletIdChange: (walletId: string) => void;
+  environment: 'smokebox' | 'sandbox';
+  onEnvironmentChange: (environment: 'smokebox' | 'sandbox') => void;
+}
+
+const SettingsPanel: React.FC<SettingsPanelProps> = ({
+  isOpen,
+  onClose,
+  apiKey,
+  onApiKeyChange,
+  walletApiKey,
+  onWalletApiKeyChange,
+  entitySecret,
+  onEntitySecretChange,
+  walletId,
+  onWalletIdChange,
+  environment,
+  onEnvironmentChange
+}) => {
+  return (
+    <>
+      {/* Overlay */}
+      {isOpen && <div className="settings-overlay" onClick={onClose}></div>}
+      
+      {/* Settings Panel */}
+      <div className={`settings-panel ${isOpen ? 'open' : ''}`}>
+        <div className="settings-header">
+          <h3>Settings</h3>
+          <button className="close-button" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        
+        <div className="settings-content">
+          <div className="settings-group">
+            <label>Environment</label>
+            <div className="settings-button-group">
+              <button
+                className={`settings-env-button ${environment === 'sandbox' ? 'active' : ''}`}
+                onClick={() => onEnvironmentChange('sandbox')}
+              >
+                Sandbox
+              </button>
+              <button
+                className={`settings-env-button ${environment === 'smokebox' ? 'active' : ''}`}
+                onClick={() => onEnvironmentChange('smokebox')}
+              >
+                Smokebox
+              </button>
+            </div>
+            <p className="settings-env-url">
+              {environment === 'sandbox' ? 'https://api-sandbox.circle.com' : 'https://api-smokebox.circle.com'}
+            </p>
+          </div>
+          
+          <div className="settings-group">
+            <label htmlFor="api-key">Circle CPS API Key</label>
+            <input
+              id="api-key"
+              type="password"
+              value={apiKey}
+              onChange={(e) => onApiKeyChange(e.target.value)}
+              placeholder="Enter your Circle CPS API key"
+              className="settings-input"
+            />
+            <p className="settings-help">
+              For Circle Programmable Settlements API endpoints
+            </p>
+          </div>
+
+          <div className="settings-group">
+            <label htmlFor="wallet-api-key">Programmable Wallets API Key</label>
+            <input
+              id="wallet-api-key"
+              type="password"
+              value={walletApiKey}
+              onChange={(e) => onWalletApiKeyChange(e.target.value)}
+              placeholder="Enter your Programmable Wallets API key"
+              className="settings-input"
+            />
+            <p className="settings-help">
+              For api.circle.com wallet operations
+            </p>
+          </div>
+
+          <div className="settings-group">
+            <label htmlFor="entity-secret">Entity Secret</label>
+            <input
+              id="entity-secret"
+              type="password"
+              value={entitySecret}
+              onChange={(e) => onEntitySecretChange(e.target.value)}
+              placeholder="Enter your entity secret"
+              className="settings-input"
+            />
+            <p className="settings-help">
+              Required for wallet authentication
+            </p>
+          </div>
+
+          <div className="settings-group">
+            <label htmlFor="wallet-id">Programmable Wallet ID</label>
+            <input
+              id="wallet-id"
+              type="text"
+              value={walletId}
+              onChange={(e) => onWalletIdChange(e.target.value)}
+              placeholder="Enter your programmable wallet ID"
+              className="settings-input"
+            />
+            <p className="settings-help">
+              Used for all wallet operations (auto-populated in forms)
+            </p>
+          </div>
+
+          <div className="settings-group">
+            <p className="settings-warning">
+              Do not share or record your API keys in publicly accessible mediums such as GitHub, client-side code, etc.
+            </p>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+export default SettingsPanel;
