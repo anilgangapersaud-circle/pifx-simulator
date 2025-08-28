@@ -215,11 +215,11 @@ app.post('/api/wallet/sign/typedData', async (req, res) => {
       });
     }
 
-    // Validate typedData structure
+    // Validate typedData structure (domain is optional for simplified signing)
     const { typedData } = requestBody;
-    if (!typedData.types || !typedData.primaryType || !typedData.domain || !typedData.message) {
+    if (!typedData.types || !typedData.primaryType || !typedData.message) {
       return res.status(400).json({
-        error: 'typedData must include types, primaryType, domain, and message fields'
+        error: 'typedData must include types, primaryType, and message fields'
       });
     }
 
@@ -227,7 +227,8 @@ app.post('/api/wallet/sign/typedData', async (req, res) => {
     console.log('Sign Typed Data Request:', {
       walletId: requestBody.walletId,
       primaryType: typedData.primaryType,
-      domain: typedData.domain,
+      hasDomain: !!typedData.domain,
+      domain: typedData.domain || 'none provided',
       typesKeys: Object.keys(typedData.types),
       messageKeys: Object.keys(typedData.message)
     });
@@ -252,14 +253,7 @@ app.post('/api/wallet/sign/typedData', async (req, res) => {
 
     // Prepare typedData for Circle SDK (remove EIP712Domain if present)
     let typedDataForCircle = { ...requestBody.typedData };
-    if (typedDataForCircle.types && typedDataForCircle.types.EIP712Domain) {
-      console.log('🔧 Removing EIP712Domain from types for Circle SDK compatibility');
-      const { EIP712Domain, ...cleanTypes } = typedDataForCircle.types;
-      typedDataForCircle = {
-        ...typedDataForCircle,
-        types: cleanTypes
-      };
-    }
+  
 
     // Validate the typedData can be stringified
     let dataString;
@@ -512,15 +506,15 @@ app.post('/api/recordTrade', async (req, res) => {
     // Prepare the ABI function signature for recordTrade
     const abiFunctionSignature = "recordTrade(address,((bytes32,address,address,uint256,uint256,uint256),address,uint256,uint256,uint256),bytes,address,(uint256,uint256,uint256),bytes)";
 
-    // Convert string numbers to integers for contract execution
-    const parseToInt = (value: any) => {
+    // Convert values to strings for Circle SDK (it expects string representation of large numbers)
+    const ensureString = (value: any) => {
       if (typeof value === 'string') {
-        return parseInt(value, 10);
+        return value;
       }
-      return typeof value === 'number' ? value : parseInt(String(value), 10);
+      return String(value);
     };
 
-    // Prepare the ABI parameters array with proper integer conversion
+    // Prepare the ABI parameters array with proper string conversion for Circle SDK
     const abiParameters = [
       taker, // address taker
       [ // TakerDetails struct
@@ -528,28 +522,28 @@ app.post('/api/recordTrade', async (req, res) => {
           takerDetails.consideration.quoteId, // bytes32 (keep as string/hex)
           takerDetails.consideration.base, // address (keep as string)
           takerDetails.consideration.quote, // address (keep as string)
-          parseToInt(takerDetails.consideration.baseAmount), // uint256 -> integer
-          parseToInt(takerDetails.consideration.quoteAmount), // uint256 -> integer
-          parseToInt(takerDetails.consideration.maturity) // uint256 -> integer
+          ensureString(takerDetails.consideration.baseAmount), // uint256 -> string
+          ensureString(takerDetails.consideration.quoteAmount), // uint256 -> string
+          ensureString(takerDetails.consideration.maturity) // uint256 -> string
         ],
         takerDetails.recipient, // address (keep as string)
-        parseToInt(takerDetails.fee), // uint256 -> integer
-        parseToInt(takerDetails.nonce), // uint256 -> integer
-        parseToInt(takerDetails.deadline) // uint256 -> integer
+        ensureString(takerDetails.fee), // uint256 -> string
+        takerDetails.nonce, // uint256 -> keep as-is (nonces seem to work as integers)
+        ensureString(takerDetails.deadline) // uint256 -> string
       ],
       takerSignature, // bytes (keep as string/hex)
       maker, // address maker (keep as string)
       [ // MakerDetails struct
-        parseToInt(makerDetails.fee), // uint256 -> integer
-        parseToInt(makerDetails.nonce), // uint256 -> integer
-        parseToInt(makerDetails.deadline) // uint256 -> integer
+        ensureString(makerDetails.fee), // uint256 -> string
+        makerDetails.nonce, // uint256 -> keep as-is (nonces seem to work as integers)
+        ensureString(makerDetails.deadline) // uint256 -> string
       ],
       makerSignature // bytes (keep as string/hex)
     ];
 
     console.log('=== Contract Execution Parameters ===');
     console.log('Function Signature:', abiFunctionSignature);
-    console.log('Parameter Types:');
+    console.log('Parameter Types (Circle SDK expects strings for uint256):');
     console.log('- baseAmount:', typeof abiParameters[1][0][3], '(value:', abiParameters[1][0][3], ')');
     console.log('- quoteAmount:', typeof abiParameters[1][0][4], '(value:', abiParameters[1][0][4], ')');
     console.log('- maturity:', typeof abiParameters[1][0][5], '(value:', abiParameters[1][0][5], ')');
@@ -657,11 +651,11 @@ app.post('/api/wallet/generateAndSign', async (req, res) => {
       });
     }
 
-    // Validate EIP-712 structure
-    if (!typedData.domain || !typedData.types || !typedData.message) {
+    // Validate EIP-712 structure (domain is optional for simplified signing)
+    if (!typedData.types || !typedData.message) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid EIP-712 typed data structure. Must have domain, types, and message fields.'
+        error: 'Invalid EIP-712 typed data structure. Must have types and message fields.'
       });
     }
 
@@ -687,8 +681,10 @@ app.post('/api/wallet/generateAndSign', async (req, res) => {
       privateKey = wallet.privateKey;
       console.log('📱 Generated new wallet:', wallet.address);
     } else {
-      // Use provided private key or generate one
+      // Use provided private key, wallet address, or generate one
       const providedPrivateKey = req.body.privateKey;
+      const providedWalletAddress = req.body.walletAddress;
+      
       if (providedPrivateKey) {
         try {
           const wallet = web3.eth.accounts.privateKeyToAccount(providedPrivateKey);
@@ -704,8 +700,31 @@ app.post('/api/wallet/generateAndSign', async (req, res) => {
             error: 'Invalid private key provided'
           });
         }
+      } else if (providedWalletAddress) {
+        // Generate a deterministic private key from the wallet address for signing
+        // This is for testing purposes - in production you'd need the actual private key
+        const crypto = require('crypto');
+        const addressHash = crypto.createHash('sha256').update(providedWalletAddress.toLowerCase()).digest('hex');
+        const deterministicPrivateKey = '0x' + addressHash;
+        
+        try {
+          const wallet = web3.eth.accounts.privateKeyToAccount(deterministicPrivateKey);
+          walletInfo = {
+            address: wallet.address,
+            privateKey: deterministicPrivateKey,
+            originalRequestedAddress: providedWalletAddress
+          };
+          privateKey = deterministicPrivateKey;
+          console.log('🎯 Generated deterministic wallet for address:', providedWalletAddress);
+          console.log('📍 Actual signing wallet:', wallet.address);
+        } catch (error) {
+          return res.status(400).json({
+            success: false,
+            error: 'Failed to generate wallet from provided address'
+          });
+        }
       } else {
-        // Generate wallet if no private key provided
+        // Generate wallet if no private key or address provided
         const wallet = web3.eth.accounts.create();
         walletInfo = {
           address: wallet.address,
@@ -720,42 +739,37 @@ app.post('/api/wallet/generateAndSign', async (req, res) => {
     const ethersWallet = new ethers.Wallet(privateKey);
     console.log('✍️  Signing typed data with ethers...');
     
-    // Prepare types for ethers.js (remove EIP712Domain as it's handled automatically)
-    const { EIP712Domain, ...typesForSigning } = typedData.types;
     
     console.log('📝 Signing with:', {
       domain: typedData.domain,
-      typesCount: Object.keys(typesForSigning).length,
+      typesCount: Object.keys(typedData.types).length,
       primaryType: typedData.primaryType || 'auto-detected',
-      hasMessage: !!typedData.message
+      hasMessage: !!typedData.message,
+      usingDefaultDomain: !typedData.domain
     });
     
     const signature = await ethersWallet.signTypedData(
       typedData.domain,
-      typesForSigning,
+      typedData.types,
       typedData.message
     );
 
     console.log('✅ Signature generated successfully');
 
+    console.log('Signature:', signature);
+
     // Parse signature into components (similar to Circle SDK format)
-    const sigComponents = ethers.Signature.from(signature);
 
     res.json({
       success: true,
       data: {
         signature,
         wallet: walletInfo,
-        signatureComponents: {
-          r: sigComponents.r,
-          s: sigComponents.s,
-          v: sigComponents.v
-        },
         typedData: {
           original: typedData,
           usedForSigning: {
             domain: typedData.domain,
-            types: typesForSigning,
+            types: typedData.types,
             message: typedData.message
           }
         },
@@ -806,6 +820,356 @@ app.post('/api/wallet/generateAndSign', async (req, res) => {
 /**
  * Generate test wallets and signed mock data for contract execution testing
  */
+// POST /api/breachTrade - Breach trade on FxEscrow contract using Circle SDK
+app.post('/api/breachTrade', async (req, res) => {
+  try {
+    const {
+      walletApiKey,
+      entitySecret,
+      walletId,
+      contractAddress,
+      refId,
+      tradeId
+    } = req.body;
+
+    // Validate required Circle SDK fields
+    if (!walletApiKey || !entitySecret) {
+      return res.status(400).json({
+        error: 'Both walletApiKey and entitySecret are required for Circle SDK'
+      });
+    }
+
+    if (!walletId) {
+      return res.status(400).json({
+        error: 'walletId is required'
+      });
+    }
+
+    if (!contractAddress) {
+      return res.status(400).json({
+        error: 'contractAddress is required'
+      });
+    }
+
+    // Validate trade data
+    if (tradeId === undefined || tradeId === null) {
+      return res.status(400).json({
+        error: 'tradeId is required'
+      });
+    }
+
+    // Validate tradeId is a positive integer
+    const tradeIdNumber = parseInt(tradeId);
+    if (isNaN(tradeIdNumber) || tradeIdNumber < 0) {
+      return res.status(400).json({
+        error: 'tradeId must be a valid non-negative integer'
+      });
+    }
+
+    console.log('=== Circle SDK Breach Trade Request ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Wallet ID:', walletId);
+    console.log('Contract Address:', contractAddress);
+    console.log('Reference ID:', refId || 'Not provided');
+    console.log('Trade ID:', tradeIdNumber);
+    console.log('========================================');
+
+    // Initialize the Circle SDK client
+    const circleClient = initiateDeveloperControlledWalletsClient({
+      apiKey: walletApiKey,
+      entitySecret: entitySecret
+    });
+
+    // Prepare the ABI function signature for breach
+    const abiFunctionSignature = "breach(uint256)";
+
+    // Prepare the ABI parameters array
+    const abiParameters = [
+      tradeIdNumber // uint256 tradeId
+    ];
+
+    console.log('=== Breach Function Parameters ===');
+    console.log('Function Signature:', abiFunctionSignature);
+    console.log('Trade ID Type:', typeof abiParameters[0], '(value:', abiParameters[0], ')');
+    console.log('Full Parameters:', JSON.stringify(abiParameters, null, 2));
+    console.log('==================================');
+
+    // Create the contract execution request
+    const contractExecutionRequest = {
+      contractAddress: contractAddress,
+      walletId: walletId,
+      abiFunctionSignature: abiFunctionSignature,
+      abiParameters: abiParameters,
+      fee: {
+        config: {
+          feeLevel: 'MEDIUM' as const
+        },
+        type: 'level' as const
+      },
+      ...(refId && { refId: refId }) // Only include refId if provided
+    };
+
+    console.log('=== Final Breach Contract Execution Request ===');
+    console.log('Request payload:', JSON.stringify(contractExecutionRequest, null, 2));
+    console.log('RefId included:', !!refId);
+    console.log('===============================================');
+    
+    console.log('Executing breach function via Circle SDK...');
+
+    // Execute the contract function using Circle SDK
+    const response = await circleClient.createContractExecutionTransaction(contractExecutionRequest);
+
+    console.log('=== Circle SDK Breach Response ===');
+    console.log('Response Status:', response.status || 'Unknown');
+    console.log('Response Data:', JSON.stringify(response.data, null, 2));
+    console.log('==================================');
+
+    // Return the Circle SDK response
+    res.json(response.data);
+
+  } catch (error: any) {
+    console.error('Circle SDK Breach Function Error:', error);
+    
+    let statusCode = 500;
+    let errorMessage = 'Internal server error occurred while executing breach function';
+    let errorDetails = null;
+
+    if (error.response) {
+      // Circle API error
+      statusCode = error.response.status;
+      errorDetails = error.response.data;
+      
+      if (error.response.status === 401) {
+        errorMessage = 'Authentication failed. Please check your API key and entity secret.';
+      } else if (error.response.status === 400) {
+        errorMessage = error.response.data?.message || 'Invalid request data. Please check your parameters.';
+      } else if (error.response.status === 404) {
+        errorMessage = 'Wallet not found. Please verify the wallet ID is correct.';
+      } else if (error.response.status === 403) {
+        errorMessage = 'Access forbidden. Please check your permissions and entity secret.';
+      } else {
+        errorMessage = error.response.data?.message || `Circle API error: ${error.response.status}`;
+      }
+    } else if (error.code === 'ECONNREFUSED') {
+      errorMessage = 'Cannot connect to Circle API. Please check your internet connection.';
+    } else if (error.message.includes('API key')) {
+      statusCode = 401;
+      errorMessage = 'Invalid API key format or missing authentication credentials.';
+    } else if (error.message.includes('entity secret')) {
+      statusCode = 401;
+      errorMessage = 'Invalid entity secret. Please check your entity secret configuration.';
+    } else {
+      errorMessage = error.message || 'Unknown error occurred during breach function execution';
+      errorDetails = error.stack;
+    }
+
+    res.status(statusCode).json({
+      error: errorMessage,
+      details: errorDetails,
+      timestamp: new Date().toISOString(),
+      method: 'Circle SDK createContractExecution - breach'
+    });
+  }
+});
+
+// POST /api/takerDeliver - Execute takerDeliver function on FxEscrow contract using Circle SDK
+app.post('/api/takerDeliver', async (req, res) => {
+  try {
+    const {
+      walletApiKey,
+      entitySecret,
+      walletId,
+      contractAddress,
+      refId,
+      tradeId,
+      permit,
+      signature
+    } = req.body;
+
+    // Validate required Circle SDK fields
+    if (!walletApiKey || !entitySecret) {
+      return res.status(400).json({
+        error: 'Both walletApiKey and entitySecret are required for Circle SDK'
+      });
+    }
+
+    if (!walletId) {
+      return res.status(400).json({
+        error: 'walletId is required'
+      });
+    }
+
+    if (!contractAddress) {
+      return res.status(400).json({
+        error: 'contractAddress is required'
+      });
+    }
+
+    // Validate trade data
+    if (tradeId === undefined || tradeId === null) {
+      return res.status(400).json({
+        error: 'tradeId is required'
+      });
+    }
+
+    // Validate tradeId is a positive integer
+    const tradeIdNumber = parseInt(tradeId);
+    if (isNaN(tradeIdNumber) || tradeIdNumber < 0) {
+      return res.status(400).json({
+        error: 'tradeId must be a valid non-negative integer'
+      });
+    }
+
+    // Validate permit structure
+    if (!permit || !permit.permitted || !permit.nonce || !permit.deadline) {
+      return res.status(400).json({
+        error: 'permit must include permitted, nonce, and deadline fields'
+      });
+    }
+
+    if (!permit.permitted.token || !permit.permitted.amount) {
+      return res.status(400).json({
+        error: 'permit.permitted must include token and amount fields'
+      });
+    }
+
+    if (!signature) {
+      return res.status(400).json({
+        error: 'signature is required'
+      });
+    }
+
+    console.log('=== Circle SDK TakerDeliver Request ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Wallet ID:', walletId);
+    console.log('Contract Address:', contractAddress);
+    console.log('Reference ID:', refId || 'Not provided');
+    console.log('Trade ID:', tradeIdNumber);
+    console.log('Permit:', JSON.stringify(permit, null, 2));
+    console.log('Signature:', signature);
+    console.log('======================================');
+
+    // Initialize the Circle SDK client
+    const circleClient = initiateDeveloperControlledWalletsClient({
+      apiKey: walletApiKey,
+      entitySecret: entitySecret
+    });
+
+    // Prepare the ABI function signature for takerDeliver (without spender field)
+    const abiFunctionSignature = "takerDeliver(uint256,((address,uint256),uint256,uint256),bytes)";
+
+    // Convert values to strings for Circle SDK (it expects string representation of large numbers)
+    const ensureString = (value: any) => {
+      if (typeof value === 'string') {
+        return value;
+      }
+      return String(value);
+    };
+
+    // Prepare the ABI parameters array (without spender field)
+    const abiParameters = [
+      tradeIdNumber, // uint256 tradeId
+      [ // PermitTransferFrom struct (without spender field)
+        [ // TokenPermissions (permitted)
+          permit.permitted.token, // address token
+          permit.permitted.amount // uint256 amount
+        ],
+        permit.nonce, // uint256 nonce
+        permit.deadline // uint256 deadline
+      ],
+      signature // bytes signature
+    ];
+
+    console.log('=== TakerDeliver Function Parameters ===');
+    console.log('Function Signature:', abiFunctionSignature);
+    console.log('Parameter Types:');
+    console.log('- tradeId:', typeof abiParameters[0], '(value:', abiParameters[0], ')');
+    console.log('- permit.permitted.token:', typeof abiParameters[1][0][0], '(value:', abiParameters[1][0][0], ')');
+    console.log('- permit.permitted.amount:', typeof abiParameters[1][0][1], '(value:', abiParameters[1][0][1], ')');
+    console.log('- permit.nonce:', typeof abiParameters[1][1], '(value:', abiParameters[1][1], ')');
+    console.log('- permit.deadline:', typeof abiParameters[1][2], '(value:', abiParameters[1][2], ')');
+    console.log('- signature:', typeof abiParameters[2], '(length:', abiParameters[2].length, ')');
+    console.log('Full Parameters:', JSON.stringify(abiParameters, null, 2));
+    console.log('=======================================');
+
+    // Create the contract execution request
+    const contractExecutionRequest = {
+      contractAddress: contractAddress,
+      walletId: walletId,
+      abiFunctionSignature: abiFunctionSignature,
+      abiParameters: abiParameters,
+      fee: {
+        config: {
+          feeLevel: 'MEDIUM' as const
+        },
+        type: 'level' as const
+      },
+      ...(refId && { refId: refId }) // Only include refId if provided
+    };
+
+    console.log('=== Final TakerDeliver Contract Execution Request ===');
+    console.log('Request payload:', JSON.stringify(contractExecutionRequest, null, 2));
+    console.log('RefId included:', !!refId);
+    console.log('===================================================');
+    
+    console.log('Executing takerDeliver function via Circle SDK...');
+
+    // Execute the contract function using Circle SDK
+    const response = await circleClient.createContractExecutionTransaction(contractExecutionRequest);
+
+    console.log('=== Circle SDK TakerDeliver Response ===');
+    console.log('Response Status:', response.status || 'Unknown');
+    console.log('Response Data:', JSON.stringify(response.data, null, 2));
+    console.log('=======================================');
+
+    // Return the Circle SDK response
+    res.json(response.data);
+
+  } catch (error: any) {
+    console.error('Circle SDK TakerDeliver Function Error:', error);
+    
+    let statusCode = 500;
+    let errorMessage = 'Internal server error occurred while executing takerDeliver function';
+    let errorDetails = null;
+
+    if (error.response) {
+      // Circle API error
+      statusCode = error.response.status;
+      errorDetails = error.response.data;
+      
+      if (error.response.status === 401) {
+        errorMessage = 'Authentication failed. Please check your API key and entity secret.';
+      } else if (error.response.status === 400) {
+        errorMessage = error.response.data?.message || 'Invalid request data. Please check your parameters.';
+      } else if (error.response.status === 404) {
+        errorMessage = 'Wallet not found. Please verify the wallet ID is correct.';
+      } else if (error.response.status === 403) {
+        errorMessage = 'Access forbidden. Please check your permissions and entity secret.';
+      } else {
+        errorMessage = error.response.data?.message || `Circle API error: ${error.response.status}`;
+      }
+    } else if (error.code === 'ECONNREFUSED') {
+      errorMessage = 'Cannot connect to Circle API. Please check your internet connection.';
+    } else if (error.message.includes('API key')) {
+      statusCode = 401;
+      errorMessage = 'Invalid API key format or missing authentication credentials.';
+    } else if (error.message.includes('entity secret')) {
+      statusCode = 401;
+      errorMessage = 'Invalid entity secret. Please check your entity secret configuration.';
+    } else {
+      errorMessage = error.message || 'Unknown error occurred during takerDeliver function execution';
+      errorDetails = error.stack;
+    }
+
+    res.status(statusCode).json({
+      error: errorMessage,
+      details: errorDetails,
+      timestamp: new Date().toISOString(),
+      method: 'Circle SDK createContractExecution - takerDeliver'
+    });
+  }
+});
+
 // GET /api/wallet/info - Get wallet address and balance
 app.get('/api/wallet/info/:walletId', async (req, res) => {
   try {
@@ -899,7 +1263,7 @@ app.post('/api/generateTestData', async (req, res) => {
       name: 'FxEscrow',
       version: '1',
       chainId: 11155111, // Sepolia
-      verifyingContract: '0x51F8418D9c64E67c243DCb8f10771bA83bcd9Aa8'
+              verifyingContract: '0x51F8418D9c64E67c243DCb8f10771bA83bcd9Aa8' // FxEscrow proxy address
     };
 
     // EIP-712 Types (based on index.js)
@@ -1021,7 +1385,7 @@ app.post('/api/generateTestData', async (req, res) => {
       
       // Form data structure matching ContractExecutionForm
       formData: {
-        contractAddress: '0xF7029EE5108069bBf7927e75C6B8dBd99e6c6572', // FxEscrow contract
+        contractAddress: '0x51F8418D9c64E67c243DCb8f10771bA83bcd9Aa8', // FxEscrow proxy contract
         walletId: '', // Will be filled from user settings
         taker: takerWallet.address,
         maker: makerWallet.address,
@@ -1073,6 +1437,103 @@ app.post('/api/generateTestData', async (req, res) => {
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// POST /api/makerDeliver - Execute makerDeliver function on FxEscrow contract using Circle SDK
+app.post('/api/makerDeliver', async (req, res) => {
+  try {
+    const {
+      walletApiKey,
+      entitySecret,
+      walletId,
+      contractAddress,
+      refId,
+      tradeId
+    } = req.body;
+
+    // Validate required Circle SDK fields
+    if (!walletApiKey || !entitySecret) {
+      return res.status(400).json({
+        error: 'Both walletApiKey and entitySecret are required for Circle SDK'
+      });
+    }
+
+    if (!walletId) {
+      return res.status(400).json({
+        error: 'walletId is required'
+      });
+    }
+
+    if (!contractAddress) {
+      return res.status(400).json({
+        error: 'contractAddress is required'
+      });
+    }
+
+    // Validate trade data
+    if (tradeId === undefined || tradeId === null) {
+      return res.status(400).json({
+        error: 'tradeId is required'
+      });
+    }
+
+    // Validate tradeId is a positive integer
+    const tradeIdNumber = parseInt(tradeId);
+    if (isNaN(tradeIdNumber) || tradeIdNumber < 0) {
+      return res.status(400).json({
+        error: 'tradeId must be a valid non-negative integer'
+      });
+    }
+
+    console.log('=== Circle SDK MakerDeliver Request ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Wallet ID:', walletId);
+    console.log('Contract Address:', contractAddress);
+    console.log('Reference ID:', refId || 'Not provided');
+    console.log('Trade ID:', tradeIdNumber);
+    console.log('======================================');
+
+    // Initialize the Circle SDK client
+    const circleClient = initiateDeveloperControlledWalletsClient({
+      apiKey: walletApiKey,
+      entitySecret: entitySecret
+    });
+
+    // Prepare the contract execution request for makerDeliver function
+    const abiFunctionSignature = `makerDeliver(uint256)`;
+    const abiParameters = [tradeIdNumber];
+
+    const contractExecutionRequest = {
+      contractAddress: contractAddress,
+      walletId: walletId,
+      abiFunctionSignature: abiFunctionSignature,
+      abiParameters: abiParameters,
+      ...(refId && { refId: refId })
+    };
+
+    // Execute the makerDeliver function
+    const response = await circleClient.createContractExecutionTransaction(contractExecutionRequest);
+
+    console.log('=== Circle SDK MakerDeliver Response ===');
+    console.log('Response Data:', JSON.stringify(response.data, null, 2));
+    console.log('========================================');
+
+    res.json(response.data);
+  } catch (error: any) {
+    console.error('=== Circle SDK MakerDeliver Error ===');
+    console.error('Error details:', error);
+    console.error('Error message:', error.message);
+    if (error.response) {
+      console.error('HTTP Status:', error.response.status);
+      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+    }
+    console.error('====================================');
+
+    res.status(error.response?.status || 500).json({
+      error: error.message,
+      details: error.response?.data || null
+    });
+  }
 });
 
 app.listen(PORT, () => {

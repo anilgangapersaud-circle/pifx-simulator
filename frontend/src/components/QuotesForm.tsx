@@ -57,7 +57,6 @@ const QuotesForm: React.FC<QuotesFormProps> = ({ state, updateState }) => {
 
   return (
     <div className="form-container">
-      <h4>POST /v1/exchange/cps/quotes</h4>
       <form onSubmit={handleSubmit}>
         <div className="form-group">
           <label>From Currency:</label>

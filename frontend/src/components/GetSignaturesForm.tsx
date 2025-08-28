@@ -5,16 +5,27 @@ import { AppState } from '../App';
 interface GetSignaturesFormProps {
   state: AppState;
   updateState: (updates: Partial<AppState>) => void;
+  flowType?: 'taker' | 'maker';
 }
 
-const GetSignaturesForm: React.FC<GetSignaturesFormProps> = ({ state, updateState }) => {
+const GetSignaturesForm: React.FC<GetSignaturesFormProps> = ({ state, updateState, flowType }) => {
   const [formData, setFormData] = useState({
     tradeId: '',
-    selector: 'taker' as 'taker' | 'maker',
+    selector: (flowType || 'taker') as 'taker' | 'maker',
     recipientAddress: ''
   });
   const [justAutoLoaded, setJustAutoLoaded] = useState(false);
   const manuallyChangedRef = useRef(false);
+
+  // Update selector when flowType prop changes
+  useEffect(() => {
+    if (flowType && flowType !== formData.selector) {
+      setFormData(prev => ({
+        ...prev,
+        selector: flowType
+      }));
+    }
+  }, [flowType, formData.selector]);
 
   // Auto-populate tradeId from Step 2 trade response (only if field is empty and not manually changed)
   useEffect(() => {
@@ -149,9 +160,6 @@ const GetSignaturesForm: React.FC<GetSignaturesFormProps> = ({ state, updateStat
 
   return (
     <div className="form-container">
-      <h4>GET /v1/exchange/cps/signatures/presign/{formData.selector}/:tradeId</h4>
-      <p>Get presign data using the trade ID from Step 2</p>
-      
       {hasTradeData && formData.tradeId && (
         <div style={{ 
           background: justAutoLoaded ? '#e6fffa' : '#f0fff4', 
@@ -172,25 +180,6 @@ const GetSignaturesForm: React.FC<GetSignaturesFormProps> = ({ state, updateStat
               ? 'Fresh trade ID loaded from the trade response. You can edit it if needed, or use as-is!'
               : 'The trade ID was automatically loaded from Step 2. You can edit it manually if needed!'
             }
-          </small>
-        </div>
-      )}
-      
-      {!hasTradeData && !formData.tradeId && (
-        <div style={{ 
-          background: '#fffaf0', 
-          border: '1px solid #ed8936', 
-          borderRadius: '6px', 
-          padding: '0.75rem', 
-          marginBottom: '1rem',
-          fontSize: '0.9rem'
-        }}>
-          <span style={{ color: '#ed8936', fontWeight: 'bold' }}>
-            ⏳ Waiting for trade data
-          </span>
-          <br />
-          <small>
-            Complete Step 2 to automatically populate the trade ID, or manually enter a trade ID below.
           </small>
         </div>
       )}

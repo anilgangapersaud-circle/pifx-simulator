@@ -11,6 +11,9 @@ import GetTradesPage from './pages/GetTradesPage';
 import GetTradeByIdPage from './pages/GetTradeByIdPage';
 import GetSignaturesPage from './pages/GetSignaturesPage';
 import ContractExecutionPage from './pages/ContractExecutionPage';
+import BreachTradePage from './pages/BreachTradePage';
+import TakerDeliverPage from './pages/TakerDeliverPage';
+import CompleteWorkflowPage from './pages/CompleteWorkflowPage';
 
 
 export interface AppState {
@@ -158,14 +161,17 @@ function AppContent() {
       
       <main className="App-main">
         <Routes>
-          <Route path="/" element={<GetSignaturesPage state={state} updateState={updateState} />} />
+          <Route path="/" element={<CompleteWorkflowPage state={state} updateState={updateState} />} />
+          <Route path="/get-signatures" element={<GetSignaturesPage state={state} updateState={updateState} />} />
           <Route path="/quotes" element={<QuotesPage state={state} updateState={updateState} />} />
           <Route path="/trades" element={<TradesPage state={state} updateState={updateState} />} />
           <Route path="/signatures" element={<SignaturesPage state={state} updateState={updateState} />} />
           <Route path="/contract-execution" element={<ContractExecutionPage state={state} updateState={updateState} />} />
+          <Route path="/breach-trade" element={<BreachTradePage state={state} updateState={updateState} />} />
+          <Route path="/taker-deliver" element={<TakerDeliverPage state={state} updateState={updateState} />} />
           <Route path="/get-trades" element={<GetTradesPage state={state} updateState={updateState} />} />
           <Route path="/get-trade" element={<GetTradeByIdPage state={state} updateState={updateState} />} />
-          <Route path="/workflow" element={<GetSignaturesPage state={state} updateState={updateState} />} />
+          <Route path="/complete-workflow" element={<CompleteWorkflowPage state={state} updateState={updateState} />} />
         </Routes>
       </main>
 

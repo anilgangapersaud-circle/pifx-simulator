@@ -5,18 +5,29 @@ import { AppState } from '../App';
 interface RegisterSignatureFormProps {
   state: AppState;
   updateState: (updates: Partial<AppState>) => void;
+  flowType?: 'taker' | 'maker';
 }
 
-const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, updateState }) => {
+const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, updateState, flowType }) => {
   const [formData, setFormData] = useState({
     tradeId: '',
-    type: 'taker' as 'taker' | 'maker',
+    type: (flowType || 'taker') as 'taker' | 'maker',
     address: '',
     details: '',
     signature: ''
   });
   // Use global state for registration responses instead of local state
   const [justAutoLoaded, setJustAutoLoaded] = useState(false);
+
+  // Update type when flowType prop changes
+  useEffect(() => {
+    if (flowType && flowType !== formData.type) {
+      setFormData(prev => ({
+        ...prev,
+        type: flowType
+      }));
+    }
+  }, [flowType, formData.type]);
 
   // Auto-populate form when signing response is available
   useEffect(() => {
@@ -240,9 +251,6 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
 
   return (
     <div className="form-container">
-      <h4>POST /v1/exchange/cps/signatures</h4>
-      <p>Register the signature from Step 2 with Circle's CPS API</p>
-      
       {hasSigningData && formData.signature && (
         <div style={{ 
           background: justAutoLoaded ? '#e6fffa' : '#f0fff4', 
@@ -266,25 +274,6 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
             {state.signingResponse?.data?.wallet?.address && (
               <><br />🧪 <strong>Using generated wallet address from Web3.js signing</strong></>
             )}
-          </small>
-        </div>
-      )}
-      
-      {!hasSigningData && !formData.signature && (
-        <div style={{ 
-          background: '#fffaf0', 
-          border: '1px solid #ed8936', 
-          borderRadius: '6px', 
-          padding: '0.75rem', 
-          marginBottom: '1rem',
-          fontSize: '0.9rem'
-        }}>
-          <span style={{ color: '#ed8936', fontWeight: 'bold' }}>
-            ⏳ Waiting for signing data
-          </span>
-          <br />
-          <small>
-            Complete Step 4 to automatically populate the signature registration, or manually enter signature data below.
           </small>
         </div>
       )}

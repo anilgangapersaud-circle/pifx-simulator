@@ -10,6 +10,7 @@ interface QuoteCreationFormProps {
 const QuoteCreationForm: React.FC<QuoteCreationFormProps> = ({ state, updateState }) => {
   const [formData, setFormData] = useState({
     fromCurrency: 'EURC',
+    fromAmount: '',
     toAmount: '',
     toCurrency: 'USDC'
   });
@@ -21,8 +22,17 @@ const QuoteCreationForm: React.FC<QuoteCreationFormProps> = ({ state, updateStat
       return;
     }
 
-    if (!formData.toAmount) {
-      updateState({ quoteError: 'To Amount is required' });
+    // Check that exactly one amount is provided
+    const hasFromAmount = formData.fromAmount.trim() !== '';
+    const hasToAmount = formData.toAmount.trim() !== '';
+
+    if (!hasFromAmount && !hasToAmount) {
+      updateState({ quoteError: 'Please specify either From Amount or To Amount (but not both)' });
+      return;
+    }
+
+    if (hasFromAmount && hasToAmount) {
+      updateState({ quoteError: 'Please specify only one amount - either From Amount or To Amount, not both' });
       return;
     }
 
@@ -33,15 +43,21 @@ const QuoteCreationForm: React.FC<QuoteCreationFormProps> = ({ state, updateStat
     });
 
     try {
-      const requestBody = {
+      const requestBody: any = {
         from: {
           currency: formData.fromCurrency
         },
         to: {
-          amount: parseInt(formData.toAmount),
           currency: formData.toCurrency
         }
       };
+
+      // Add amount to either from or to based on what's provided
+      if (hasFromAmount) {
+        requestBody.from.amount = parseInt(formData.fromAmount);
+      } else {
+        requestBody.to.amount = parseInt(formData.toAmount);
+      }
 
       console.log('📤 Creating quote:', requestBody);
 
@@ -83,9 +99,6 @@ const QuoteCreationForm: React.FC<QuoteCreationFormProps> = ({ state, updateStat
 
   return (
     <div className="form-container">
-      <h4>POST /v1/exchange/cps/quotes</h4>
-      <p>Create a new quote for currency exchange</p>
-      
       <form onSubmit={handleSubmit} className="api-form">
         <div className="form-group">
           <label htmlFor="fromCurrency">From Currency *</label>
@@ -105,18 +118,17 @@ const QuoteCreationForm: React.FC<QuoteCreationFormProps> = ({ state, updateStat
         </div>
 
         <div className="form-group">
-          <label htmlFor="toAmount">To Amount *</label>
+          <label htmlFor="fromAmount">From Amount</label>
           <input
             type="number"
-            id="toAmount"
-            name="toAmount"
-            value={formData.toAmount}
+            id="fromAmount"
+            name="fromAmount"
+            value={formData.fromAmount}
             onChange={handleChange}
-            placeholder="Enter amount"
-            required
+            placeholder="Enter amount to exchange (optional)"
           />
           <small className="form-hint">
-            The amount you want to receive (in smallest currency unit)
+            The amount you want to exchange FROM (in smallest currency unit)
           </small>
         </div>
 
@@ -135,6 +147,31 @@ const QuoteCreationForm: React.FC<QuoteCreationFormProps> = ({ state, updateStat
           <small className="form-hint">
             The currency you want to receive
           </small>
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="toAmount">To Amount</label>
+          <input
+            type="number"
+            id="toAmount"
+            name="toAmount"
+            value={formData.toAmount}
+            onChange={handleChange}
+            placeholder="Enter amount to receive (optional)"
+          />
+          <small className="form-hint">
+            The amount you want to receive TO (in smallest currency unit)
+          </small>
+        </div>
+
+        <div style={{ 
+          backgroundColor: '#f8fafc', 
+          border: '1px solid #e2e8f0', 
+          borderRadius: '6px', 
+          padding: '1rem', 
+          marginBottom: '1rem' 
+        }}>
+          <strong>📝 Note:</strong> Please specify either From Amount OR To Amount, but not both.
         </div>
 
         {state.quoteError && (

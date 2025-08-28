@@ -5,13 +5,24 @@ import { AppState } from '../App';
 interface GetTradesFormProps {
   state: AppState;
   updateState: (updates: Partial<AppState>) => void;
+  flowType?: 'taker' | 'maker';
 }
 
-const GetTradesForm: React.FC<GetTradesFormProps> = ({ state, updateState }) => {
+const GetTradesForm: React.FC<GetTradesFormProps> = ({ state, updateState, flowType }) => {
   const [queryParams, setQueryParams] = useState({
-    type: 'taker',
+    type: flowType || 'taker',
     status: ''
   });
+
+  // Update type when flowType prop changes
+  React.useEffect(() => {
+    if (flowType && flowType !== queryParams.type) {
+      setQueryParams(prev => ({
+        ...prev,
+        type: flowType
+      }));
+    }
+  }, [flowType, queryParams.type]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

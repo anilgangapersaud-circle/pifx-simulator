@@ -458,33 +458,6 @@ const SignTypedDataForm: React.FC<SignTypedDataFormProps> = ({ state, updateStat
         </div>
       )}
       
-      {!hasPresignData && !typedDataText && (
-        <div style={{ 
-          background: '#fffaf0', 
-          border: '1px solid #ed8936', 
-          borderRadius: '6px', 
-          padding: '0.75rem', 
-          marginBottom: '1rem',
-          fontSize: '0.9rem'
-        }}>
-          <span style={{ color: '#ed8936', fontWeight: 'bold' }}>
-            ⏳ Waiting for presign data
-          </span>
-          <br />
-          <small>
-            Complete Step 1 to automatically populate the typed data, or manually enter EIP-712 data below.
-          </small>
-        </div>
-      )}
-      <p>
-        <small>
-          <strong>Note:</strong> {state.signingMethod === 'circle' 
-            ? 'The typed data will be serialized as a JSON string and sent to Circle\'s API in the correct format.'
-            : 'The typed data will be signed using a newly generated wallet with Web3.js and Ethers.js libraries.'
-          }
-        </small>
-      </p>
-      
       <form onSubmit={handleSubmit} className="api-form">
         {state.signingMethod === 'circle' && (
           <div className="form-group">

@@ -9,11 +9,8 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({ currentPath }) => {
   const [isOpen, setIsOpen] = useState(false);
 
   const menuItems = [
-    { path: '/', label: 'Complete Workflow', icon: '💱💼📝🔐📋', method: '5-STEP' },
-    { path: '/quotes', label: 'Quotes', icon: '💱', method: 'POST' },
-    { path: '/trades', label: 'Create Trade', icon: '💼', method: 'POST' },
-    { path: '/signatures', label: 'Signatures', icon: '✍️', method: 'POST' },
-    { path: '/contract-execution', label: 'Contract Execution', icon: '🔗', method: 'CIRCLE' },
+    { path: '/', label: 'Complete Workflow', icon: '🔄', method: 'FLOW' },
+    { path: '/breach-trade', label: 'Breach Trade', icon: '⚠️', method: 'CIRCLE' },
     { path: '/get-trades', label: 'Get Trades', icon: '📋', method: 'GET' },
     { path: '/get-trade', label: 'Get Trade by ID', icon: '🔍', method: 'GET' }
   ];

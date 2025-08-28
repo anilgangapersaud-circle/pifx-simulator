@@ -14,10 +14,6 @@ const QuotesPage: React.FC<QuotesPageProps> = ({ state, updateState }) => {
       <div className="page-header">
         <h1>💱 Quotes</h1>
         <p>Get exchange quotes for currency conversion</p>
-        <div className="endpoint-info">
-          <span className="method post">POST</span>
-          <span className="endpoint-path">/v1/exchange/cps/quotes</span>
-        </div>
       </div>
       
       <div className="page-content">

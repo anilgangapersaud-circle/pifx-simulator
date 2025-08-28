@@ -9,7 +9,7 @@ interface ContractExecutionFormProps {
 
 const ContractExecutionForm: React.FC<ContractExecutionFormProps> = ({ state, updateState }) => {
   const [formData, setFormData] = useState({
-    contractAddress: '0xF7029EE5108069bBf7927e75C6B8dBd99e6c6572',
+    contractAddress: '0x51F8418D9c64E67c243DCb8f10771bA83bcd9Aa8',
     walletId: state.walletId || '',
     refId: '',
     taker: '',
@@ -227,13 +227,8 @@ const ContractExecutionForm: React.FC<ContractExecutionFormProps> = ({ state, up
     setResponse(null);
 
     try {
-      // Helper function to convert string numbers to integers
-      const parseToInt = (value: string | number) => {
-        if (typeof value === 'number') return value;
-        return parseInt(value, 10);
-      };
-
-      // Construct the request payload for Circle SDK with proper integer conversion
+      // Construct the request payload for Circle SDK
+      // Note: Circle SDK expects most uint256 values as strings, not integers
       const payload = {
         walletApiKey: state.walletApiKey,
         entitySecret: state.entitySecret,
@@ -246,21 +241,21 @@ const ContractExecutionForm: React.FC<ContractExecutionFormProps> = ({ state, up
             quoteId: formData.consideration.quoteId, // bytes32 (keep as string)
             base: formData.consideration.base, // address (keep as string)
             quote: formData.consideration.quote, // address (keep as string)
-            baseAmount: parseToInt(formData.consideration.baseAmount), // uint256 -> integer
-            quoteAmount: parseToInt(formData.consideration.quoteAmount), // uint256 -> integer
-            maturity: parseToInt(formData.consideration.maturity) // uint256 -> integer
+            baseAmount: formData.consideration.baseAmount, // uint256 (keep as string)
+            quoteAmount: formData.consideration.quoteAmount, // uint256 (keep as string)
+            maturity: formData.consideration.maturity // uint256 (keep as string)
           },
           recipient: formData.takerRecipient, // address (keep as string)
-          fee: parseToInt(formData.takerFee), // uint256 -> integer
-          nonce: parseToInt(formData.takerNonce), // uint256 -> integer
-          deadline: parseToInt(formData.takerDeadline) // uint256 -> integer
+          fee: formData.takerFee, // uint256 (keep as string)
+          nonce: parseInt(formData.takerNonce), // nonce can be integer
+          deadline: formData.takerDeadline // uint256 (keep as string)
         },
         takerSignature: formData.takerSignature, // bytes (keep as string)
         maker: formData.maker, // address (keep as string)
         makerDetails: {
-          fee: parseToInt(formData.makerFee), // uint256 -> integer
-          nonce: parseToInt(formData.makerNonce), // uint256 -> integer
-          deadline: parseToInt(formData.makerDeadline) // uint256 -> integer
+          fee: formData.makerFee, // uint256 (keep as string)
+          nonce: parseInt(formData.makerNonce), // nonce can be integer
+          deadline: formData.makerDeadline // uint256 (keep as string)
         },
         makerSignature: formData.makerSignature // bytes (keep as string)
       };

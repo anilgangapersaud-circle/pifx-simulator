@@ -40,9 +40,6 @@ const GetSignaturesPage: React.FC<GetSignaturesPageProps> = ({ state, updateStat
         
         <div className="endpoint-info">
           <span className="method post">POST</span>
-          <span className="endpoint-path">/v1/exchange/cps/quotes</span>
-          <span style={{ margin: '0 0.3rem' }}>→</span>
-          <span className="method post">POST</span>
           <span className="endpoint-path">/v1/exchange/cps/trades</span>
           <span style={{ margin: '0 0.3rem' }}>→</span>
           <span className="method get">GET</span>
@@ -72,7 +69,6 @@ const GetSignaturesPage: React.FC<GetSignaturesPageProps> = ({ state, updateStat
           {/* Step 1: Create Quote */}
           <div className="workflow-step">
             <h3>Step 1: Create Quote</h3>
-            <p>Create a new quote for currency exchange</p>
             <div className="step-content-grid">
               <div className="form-section">
                 <QuoteCreationForm state={state} updateState={updateState} />

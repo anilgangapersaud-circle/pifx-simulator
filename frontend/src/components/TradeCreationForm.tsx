@@ -155,9 +155,6 @@ const TradeCreationForm: React.FC<TradeCreationFormProps> = ({ state, updateStat
 
   return (
     <div className="form-container">
-      <h4>POST /v1/exchange/cps/trades</h4>
-      <p>Create a new trade using the quote from Step 1</p>
-      
       {hasQuoteData && formData.quoteId && (
         <div style={{ 
           background: justAutoLoaded ? '#e6fffa' : '#f0fff4', 
@@ -178,25 +175,6 @@ const TradeCreationForm: React.FC<TradeCreationFormProps> = ({ state, updateStat
               ? 'Fresh quote ID loaded from the quote response. Ready to create trade!'
               : 'The quote ID was automatically loaded from Step 1. Ready to submit!'
             }
-          </small>
-        </div>
-      )}
-      
-      {!hasQuoteData && !formData.quoteId && (
-        <div style={{ 
-          background: '#fffaf0', 
-          border: '1px solid #ed8936', 
-          borderRadius: '6px', 
-          padding: '0.75rem', 
-          marginBottom: '1rem',
-          fontSize: '0.9rem'
-        }}>
-          <span style={{ color: '#ed8936', fontWeight: 'bold' }}>
-            ⏳ Waiting for quote data
-          </span>
-          <br />
-          <small>
-            Complete Step 1 to automatically populate the quote ID, or manually enter a quote ID below.
           </small>
         </div>
       )}
