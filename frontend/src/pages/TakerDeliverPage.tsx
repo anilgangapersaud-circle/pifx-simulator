@@ -8,6 +8,7 @@ interface TakerDeliverPageProps {
 }
 
 const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState }) => {
+
   return (
     <div className="page-container" style={{ maxWidth: 'none', width: '98%' }}>
       <div className="page-header">

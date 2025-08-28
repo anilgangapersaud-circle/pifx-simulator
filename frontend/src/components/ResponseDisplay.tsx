@@ -7,12 +7,21 @@ interface ResponseDisplayProps {
 }
 
 const ResponseDisplay: React.FC<ResponseDisplayProps> = ({ response, loading, error }) => {
+  console.log('ResponseDisplay rendered with:', { response: !!response, loading, error: !!error });
+  
   if (loading) {
     return (
-      <div className="response-display">
-        <h3>Response</h3>
-        <div className="loading">
-          <div className="loading-spinner"></div>
+      <div style={{ border: '1px solid #e2e8f0', borderRadius: '6px', padding: '1rem', backgroundColor: '#f9f9f9' }}>
+        <h3 style={{ margin: '0 0 1rem 0', color: '#2d3748' }}>Response</h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div style={{ 
+            width: '20px', 
+            height: '20px', 
+            border: '2px solid #3182ce', 
+            borderTop: '2px solid transparent', 
+            borderRadius: '50%', 
+            animation: 'spin 1s linear infinite' 
+          }}></div>
           Loading...
         </div>
       </div>
@@ -31,11 +40,11 @@ const ResponseDisplay: React.FC<ResponseDisplayProps> = ({ response, loading, er
     }
 
     return (
-      <div className="response-display">
-        <h3>Response</h3>
-        <div className="error">
-          <div className="error-icon">❌</div>
-          <div className="error-content">
+      <div style={{ border: '1px solid #e53e3e', borderRadius: '6px', padding: '1rem', backgroundColor: '#fed7d7' }}>
+        <h3 style={{ margin: '0 0 1rem 0', color: '#2d3748' }}>Response</h3>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+          <div style={{ fontSize: '1.2rem' }}>❌</div>
+          <div style={{ flex: 1 }}>
             <strong>Error:</strong> {errorData?.error || error}
             
             {errorData?.debugInfo && (
@@ -72,10 +81,10 @@ const ResponseDisplay: React.FC<ResponseDisplayProps> = ({ response, loading, er
 
   if (!response) {
     return (
-      <div className="response-display">
-        <h3>Response</h3>
-        <div className="no-response">
-          <div className="no-response-icon">📝</div>
+      <div style={{ border: '1px solid #e2e8f0', borderRadius: '6px', padding: '1rem', backgroundColor: '#f7fafc' }}>
+        <h3 style={{ margin: '0 0 1rem 0', color: '#2d3748' }}>Response</h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#718096' }}>
+          <div style={{ fontSize: '1.2rem' }}>📝</div>
           No response yet. Make an API call to see results.
         </div>
       </div>
@@ -86,13 +95,13 @@ const ResponseDisplay: React.FC<ResponseDisplayProps> = ({ response, loading, er
   const isSuccess = response && !response.error && (response.status === 'success' || response.data || response.id || !response.message?.includes('error'));
 
   return (
-    <div className="response-display">
-      <h3>Response</h3>
-      <div className={`response-container ${isSuccess ? 'success' : 'neutral'}`}>
+    <div style={{ border: '1px solid #38a169', borderRadius: '6px', padding: '1rem', backgroundColor: '#f0fff4' }}>
+      <h3 style={{ margin: '0 0 1rem 0', color: '#2d3748' }}>Response</h3>
+      <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', padding: '1rem', backgroundColor: 'white' }}>
         {isSuccess && (
-          <div className="response-header success-header">
-            <div className="success-icon">✅</div>
-            <span className="success-text">Success!</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', color: '#38a169' }}>
+            <div style={{ fontSize: '1.2rem' }}>✅</div>
+            <span style={{ fontWeight: 'bold' }}>Success!</span>
           </div>
         )}
         
@@ -170,7 +179,15 @@ const ResponseDisplay: React.FC<ResponseDisplayProps> = ({ response, loading, er
           </div>
         )}
         
-        <pre className={`response-json ${isSuccess ? 'success-json' : ''}`}>
+        <pre style={{ 
+          backgroundColor: '#f8f9fa', 
+          border: '1px solid #e2e8f0', 
+          borderRadius: '4px', 
+          padding: '1rem', 
+          overflow: 'auto',
+          fontSize: '0.9rem',
+          whiteSpace: 'pre-wrap'
+        }}>
           {JSON.stringify(response, null, 2)}
         </pre>
       </div>

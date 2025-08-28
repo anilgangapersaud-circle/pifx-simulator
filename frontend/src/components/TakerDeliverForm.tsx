@@ -784,106 +784,143 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
         </button>
       </form>
 
-
-
       {/* Response Display */}
-      {(response || error) && (
-        <div style={{ marginTop: '2rem' }}>
-          <h3>Response</h3>
-          {error && (
+      {(response || error || loading) && (
+        <div style={{ 
+          marginTop: '2rem', 
+          padding: '1.5rem', 
+          border: '1px solid #e2e8f0', 
+          borderRadius: '8px',
+          backgroundColor: '#f9f9f9'
+        }}>
+          <h3 style={{ margin: '0 0 1rem 0', color: '#2d3748' }}>Response</h3>
+          
+          {loading && (
             <div style={{ 
-              border: '1px solid #e2e8f0', 
-              borderRadius: '6px', 
-              padding: '1rem',
-              marginBottom: '1rem'
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.5rem', 
+              color: '#3182ce',
+              fontSize: '1rem'
             }}>
-              <strong>Error:</strong>
-              <pre style={{ whiteSpace: 'pre-wrap', marginTop: '0.5rem' }}>{error}</pre>
+              <div style={{ 
+                width: '20px', 
+                height: '20px', 
+                border: '2px solid #3182ce', 
+                borderTop: '2px solid transparent', 
+                borderRadius: '50%', 
+                animation: 'spin 1s linear infinite' 
+              }}></div>
+              Loading...
             </div>
           )}
-          
-          {response && (
+
+          {error && !loading && (
             <div style={{ 
-              border: '1px solid #e2e8f0', 
-              borderRadius: '6px', 
-              padding: '1rem'
+              padding: '1rem', 
+              backgroundColor: '#fed7d7', 
+              border: '1px solid #e53e3e', 
+              borderRadius: '6px',
+              marginBottom: '1rem'
             }}>
-              <strong>Success:</strong>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                <span style={{ fontSize: '1.2rem' }}>❌</span>
+                <div>
+                  <strong style={{ color: '#e53e3e' }}>Error:</strong>
+                  <div style={{ marginTop: '0.5rem', color: '#2d3748' }}>
+                    {error}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {response && !loading && (
+            <div style={{ 
+              padding: '1rem', 
+              backgroundColor: '#f0fff4', 
+              border: '1px solid #38a169', 
+              borderRadius: '6px',
+              marginBottom: '1rem'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                <span style={{ fontSize: '1.2rem' }}>✅</span>
+                <strong style={{ color: '#38a169' }}>Success!</strong>
+              </div>
               
-              {/* Special display for permit signature generation */}
-              {response.details?.signerWalletId && (
-                <div style={{ marginTop: '1rem', marginBottom: '1rem' }}>
-                  <div style={{ 
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '6px', 
-                    padding: '1rem',
-                    marginBottom: '1rem'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.75rem' }}>
-                      <span style={{ fontSize: '1.2rem', marginRight: '0.5rem' }}>🔐</span>
-                      <h4 style={{ margin: 0 }}>Permit2 Signature Generated</h4>
-                    </div>
-                    
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-                      <div style={{ 
-                        padding: '0.75rem', 
-                        borderRadius: '4px',
-                        border: '1px solid #e2e8f0'
-                      }}>
-                        <strong>👤 Signer Wallet</strong>
-                        <br />
-                        <small style={{ fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all' }}>
-                          {response.details.signerWalletId}
-                        </small>
-                      </div>
-                      
-                      <div style={{ 
-                        padding: '0.75rem', 
-                        borderRadius: '4px',
-                        border: '1px solid #e2e8f0'
-                      }}>
-                        <strong>📊 Permit Details</strong>
-                        <br />
-                        <small>
-                          Nonce: {response.details.nonce}<br />
-                          Expires: {new Date(response.details.deadline * 1000).toLocaleString()}
-                        </small>
-                      </div>
-                    </div>
-                    
-                    <div style={{ marginTop: '0.75rem', fontSize: '0.9rem' }}>
-                      <strong>✅ Ready for Transaction:</strong>
-                      <br />
-                      <span style={{ fontSize: '0.85rem' }}>
-                        • Permit signature generated and form populated<br />
-                        • Random nonce ensures uniqueness<br />
-                        • 1-hour expiration for security<br />
-                        • Click "Execute Taker Deliver" to proceed
-                      </span>
-                    </div>
+              {/* Special handling for permit signature generation */}
+              {response.details?.signingMethod && (
+                <div style={{ 
+                  padding: '1rem', 
+                  backgroundColor: '#e6fffa', 
+                  border: '1px solid #319795', 
+                  borderRadius: '6px',
+                  marginBottom: '1rem'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                    <span style={{ fontSize: '1.1rem' }}>🔐</span>
+                    <strong style={{ color: '#319795' }}>Permit Signature Generated</strong>
+                  </div>
+                  <div style={{ fontSize: '0.9rem', color: '#2c5aa0' }}>
+                    <strong>Method:</strong> {response.details.signingMethod}<br/>
+                    <strong>Signer:</strong> {response.details.signerInfo}<br/>
+                    {response.details.permitData && (
+                      <>
+                        <strong>Token:</strong> {response.details.permitData.permitted.token}<br/>
+                        <strong>Amount:</strong> {response.details.permitData.permitted.amount}<br/>
+                        <strong>Deadline:</strong> {new Date(response.details.permitData.deadline * 1000).toLocaleString()}
+                      </>
+                    )}
                   </div>
                 </div>
               )}
-              
-              <pre style={{ whiteSpace: 'pre-wrap', marginTop: '0.5rem', fontSize: '0.9rem' }}>
-                {JSON.stringify(response, null, 2)}
-              </pre>
-              
+
+              {/* Transaction details */}
               {response.id && (
-                <div style={{ marginTop: '1rem', padding: '0.75rem', border: '1px solid #e2e8f0', borderRadius: '4px' }}>
-                  <strong>Transaction Details:</strong>
-                  <br />
-                  <strong>Transaction ID:</strong> <code>{response.id}</code>
-                  <br />
-                  <strong>State:</strong> <code>{response.state}</code>
-                  {response.txHash && (
-                    <>
-                      <br />
-                      <strong>Transaction Hash:</strong> <code>{response.txHash}</code>
-                    </>
-                  )}
+                <div style={{ 
+                  padding: '1rem', 
+                  backgroundColor: '#fff', 
+                  border: '1px solid #e2e8f0', 
+                  borderRadius: '6px',
+                  marginBottom: '1rem'
+                }}>
+                  <strong style={{ color: '#2d3748' }}>Transaction Details:</strong>
+                  <div style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>
+                    <strong>ID:</strong> <code>{response.id}</code><br/>
+                    <strong>State:</strong> <code>{response.state}</code>
+                    {response.txHash && (
+                      <>
+                        <br/>
+                        <strong>Hash:</strong> <code>{response.txHash}</code>
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
+
+              {/* Raw response */}
+              <details style={{ marginTop: '1rem' }}>
+                <summary style={{ 
+                  cursor: 'pointer', 
+                  fontWeight: 'bold', 
+                  color: '#4a5568',
+                  marginBottom: '0.5rem'
+                }}>
+                  📄 Raw Response Data
+                </summary>
+                <pre style={{ 
+                  backgroundColor: '#f8f9fa', 
+                  border: '1px solid #e2e8f0', 
+                  borderRadius: '4px', 
+                  padding: '1rem', 
+                  overflow: 'auto',
+                  fontSize: '0.85rem',
+                  whiteSpace: 'pre-wrap',
+                  marginTop: '0.5rem'
+                }}>
+                  {JSON.stringify(response, null, 2)}
+                </pre>
+              </details>
             </div>
           )}
         </div>
