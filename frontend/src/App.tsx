@@ -148,7 +148,6 @@ function AppContent() {
         <div className="header-content">
           <div className="header-left">
             <HamburgerMenu currentPath={location.pathname} />
-            <h1>PiFX Simulator</h1>
           </div>
           <button 
             className="settings-button"

@@ -820,7 +820,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
                       fontSize: '1rem'
                     }}
                   >
-                    Proceed to Token Delivery →
+                    Proceed to Token Fund →
                   </button>
                 </div>
               </div>
@@ -828,7 +828,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
           </div>
         )}
 
-        {/* Step 6: Token Delivery */}
+        {/* Step 6: Token Fund */}
         {currentStep === 'deliver' && (
           <div className="form-section" style={{ width: '100%' }}>
             <div style={{ 
@@ -839,7 +839,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               width: '100%'
             }}>
               <h2 style={{ marginBottom: '0.5rem', color: '#2d3748', textAlign: 'center' }}>
-                Step 6: Execute Token Delivery
+                Step 6: Execute Token Fund
               </h2>
               <p style={{ marginBottom: '1rem', color: '#718096', textAlign: 'center' }}>
                 Execute either takerDeliver (with Permit2 signatures) or makerDeliver (simple trade ID) to fulfill the trade.
@@ -859,7 +859,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
                   <span style={{ fontSize: '1.5rem', marginRight: '0.75rem' }}>✅</span>
-                  <h3 style={{ margin: 0, color: '#38a169' }}>Token Delivery Complete!</h3>
+                  <h3 style={{ margin: 0, color: '#38a169' }}>Token Fund Complete!</h3>
                 </div>
                 <p style={{ margin: '0 0 1rem 0', color: '#4a5568', textAlign: 'center' }}>
                   Your tokens have been successfully delivered to the smart contract. The trade execution is complete.
@@ -1012,7 +1012,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
                     borderRadius: '6px',
                     padding: '1rem'
                   }}>
-                    <h4 style={{ margin: '0 0 1rem 0', color: '#38a169' }}>🚀 Token Delivery</h4>
+                    <h4 style={{ margin: '0 0 1rem 0', color: '#38a169' }}>🚀 Token Fund</h4>
                     <div style={{ fontSize: '0.9rem', color: '#4a5568' }}>
                       <strong>Status:</strong> Completed
                       <br />

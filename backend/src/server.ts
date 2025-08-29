@@ -972,6 +972,119 @@ app.post('/api/breachTrade', async (req, res) => {
   }
 });
 
+// POST /api/approvePermit2 - Approve Permit2 contract to spend tokens using Circle SDK
+app.post('/api/approvePermit2', async (req, res) => {
+  try {
+    const {
+      walletApiKey,
+      entitySecret,
+      walletId,
+      tokenAddress,
+      refId
+    } = req.body;
+
+    // Validate required Circle SDK fields
+    if (!walletApiKey || !entitySecret) {
+      return res.status(400).json({
+        error: 'Both walletApiKey and entitySecret are required for Circle SDK'
+      });
+    }
+
+    if (!walletId) {
+      return res.status(400).json({
+        error: 'walletId is required'
+      });
+    }
+
+    if (!tokenAddress) {
+      return res.status(400).json({
+        error: 'tokenAddress is required'
+      });
+    }
+
+    const permit2Address = '0x000000000022D473030F116dDEE9F6B43aC78BA3'; // Permit2 contract address
+
+    console.log('=== Circle SDK Permit2 Approval Request ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Token Address:', tokenAddress);
+    console.log('Permit2 Address:', permit2Address);
+    console.log('Wallet ID:', walletId);
+    console.log('Reference ID:', refId || 'Not provided');
+    console.log('============================================');
+
+    // Initialize the Circle SDK client
+    const circleClient = initiateDeveloperControlledWalletsClient({
+      apiKey: walletApiKey,
+      entitySecret: entitySecret
+    });
+
+    // Prepare the ABI function signature for ERC20 approve
+    const abiFunctionSignature = "approve(address,uint256)";
+
+    // Use max uint256 for unlimited approval (common pattern)
+    const maxUint256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
+    
+    // Prepare the ABI parameters array for approve function
+    const abiParameters = [
+      permit2Address, // address spender (Permit2 contract)
+      maxUint256 // uint256 amount (max approval)
+    ];
+
+    console.log('=== Permit2 Approval Function Parameters ===');
+    console.log('Function Signature:', abiFunctionSignature);
+    console.log('Parameters:');
+    console.log('- spender (Permit2):', abiParameters[0]);
+    console.log('- amount (max uint256):', abiParameters[1]);
+    console.log('=============================================');
+
+    // Create the contract execution transaction
+    const response = await circleClient.createContractExecutionTransaction({
+      walletId: walletId,
+      contractAddress: tokenAddress,
+      abiFunctionSignature: abiFunctionSignature,
+      abiParameters: abiParameters,
+      fee: {
+        config: {
+          feeLevel: 'MEDIUM' as const
+        },
+        type: 'level' as const
+      },
+      ...(refId && { refId })
+    });
+
+    console.log('✅ Permit2 Approval Transaction Created Successfully');
+    console.log('Transaction ID:', response.data?.id);
+    console.log('Transaction State:', response.data?.state);
+
+    // Return the response
+    res.json({
+      ...response.data,
+      method: 'Circle SDK Permit2 Approval',
+      tokenAddress,
+      permit2Address,
+      approvedAmount: 'unlimited'
+    });
+
+  } catch (error: any) {
+    console.error('❌ Permit2 Approval Error:', error);
+
+    // Handle specific Circle SDK errors
+    if (error.response) {
+      console.error('Circle SDK Error Response:', error.response.data);
+      return res.status(error.response.status || 500).json({
+        error: error.response.data?.message || error.response.data?.error || 'Circle SDK request failed',
+        details: error.response.data,
+        method: 'Circle SDK Permit2 Approval'
+      });
+    }
+
+    res.status(500).json({
+      error: error.message || 'An unknown error occurred during Permit2 approval',
+      method: 'Circle SDK Permit2 Approval'
+    });
+  }
+});
+
 // POST /api/takerDeliver - Execute takerDeliver function on FxEscrow contract using Circle SDK
 app.post('/api/takerDeliver', async (req, res) => {
   try {
@@ -1055,7 +1168,7 @@ app.post('/api/takerDeliver', async (req, res) => {
       entitySecret: entitySecret
     });
 
-    // Prepare the ABI function signature for takerDeliver (without spender field)
+    // Prepare the ABI function signature for takerDeliver with PermitTransferFrom (4 fields)
     const abiFunctionSignature = "takerDeliver(uint256,((address,uint256),uint256,uint256),bytes)";
 
     // Convert values to strings for Circle SDK (it expects string representation of large numbers)
@@ -1066,16 +1179,16 @@ app.post('/api/takerDeliver', async (req, res) => {
       return String(value);
     };
 
-    // Prepare the ABI parameters array (without spender field)
+    // Prepare the ABI parameters array with PermitTransferFrom struct (without witness)
     const abiParameters = [
       tradeIdNumber, // uint256 tradeId
-      [ // PermitTransferFrom struct (without spender field)
+      [ // PermitTransferFrom struct (4 fields only)
         [ // TokenPermissions (permitted)
           permit.permitted.token, // address token
           permit.permitted.amount // uint256 amount
         ],
         permit.nonce, // uint256 nonce
-        permit.deadline // uint256 deadline
+        permit.deadline // uint256 deadline (no witness in contract ABI)
       ],
       signature // bytes signature
     ];
@@ -1086,15 +1199,17 @@ app.post('/api/takerDeliver', async (req, res) => {
     console.log('- tradeId:', typeof abiParameters[0], '(value:', abiParameters[0], ')');
     console.log('- permit.permitted.token:', typeof abiParameters[1][0][0], '(value:', abiParameters[1][0][0], ')');
     console.log('- permit.permitted.amount:', typeof abiParameters[1][0][1], '(value:', abiParameters[1][0][1], ')');
-    console.log('- permit.nonce:', typeof abiParameters[1][1], '(value:', abiParameters[1][1], ')');
-    console.log('- permit.deadline:', typeof abiParameters[1][2], '(value:', abiParameters[1][2], ')');
+    console.log('- permit.spender:', typeof abiParameters[1][1], '(value:', abiParameters[1][1], ')');
+    console.log('- permit.nonce:', typeof abiParameters[1][2], '(value:', abiParameters[1][2], ')');
+    console.log('- permit.deadline:', typeof abiParameters[1][3], '(value:', abiParameters[1][3], ')');
     console.log('- signature:', typeof abiParameters[2], '(length:', abiParameters[2].length, ')');
     console.log('Full Parameters:', JSON.stringify(abiParameters, null, 2));
+    console.log('Note: Frontend signs PermitWitnessTransferFrom but contract expects PermitTransferFrom');
     console.log('=======================================');
 
     // Create the contract execution request
     const contractExecutionRequest = {
-      contractAddress: contractAddress,
+      contractAddress: "0x51F8418D9c64E67c243DCb8f10771bA83bcd9Aa8",
       walletId: walletId,
       abiFunctionSignature: abiFunctionSignature,
       abiParameters: abiParameters,

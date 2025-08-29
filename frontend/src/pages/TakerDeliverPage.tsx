@@ -30,7 +30,7 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
         </div>
         <p style={{ margin: '0.5rem 0', color: '#2c5aa0' }}>
           This page uses Circle's <code>createContractExecutionTransaction</code> API to execute the <code>takerDeliver</code> function 
-          on the FxEscrow smart contract. Features integrated Permit2 signing with web3js for automatic permit generation.
+          on the FxEscrow smart contract. Features a 3-step workflow: Permit2 approval, permit signing, and execution.
         </p>
         <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', flexWrap: 'wrap' }}>
           <div style={{ 
@@ -59,6 +59,15 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
             fontSize: '0.85rem'
           }}>
             ✅ Automatic permit signing
+          </div>
+          <div style={{ 
+            backgroundColor: '#f0fff4', 
+            padding: '0.5rem 0.75rem', 
+            borderRadius: '4px',
+            border: '1px solid #38a169',
+            fontSize: '0.85rem'
+          }}>
+            ✅ 3-step guided workflow
           </div>
         </div>
       </div>
@@ -214,8 +223,12 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
         <div style={{ marginTop: '1rem' }}>
           <p><strong>Endpoint:</strong> <code>POST /api/takerDeliver</code></p>
           <p><strong>Circle SDK Method:</strong> <code>createContractExecutionTransaction</code></p>
-          <p><strong>Contract Function:</strong> <code>takerDeliver(uint256,((address,uint256),uint256,uint256),bytes)</code></p>
+          <p><strong>Contract Function:</strong> <code>takerDeliver(uint256,((address,uint256),address,uint256,uint256),bytes)</code></p>
           <p><strong>Fee Level:</strong> <code>MEDIUM</code> (automatically configured)</p>
+          
+          <div style={{ marginTop: '1rem' }}>
+            <strong>Note:</strong> <em>The frontend signs PermitWitnessTransferFrom (with witness field) but the contract ABI expects PermitTransferFrom (4 fields only). The witness data is used for signing validation but not passed to the contract.</em>
+          </div>
           
           <div style={{ marginTop: '1rem' }}>
             <strong>Function Parameters:</strong>
@@ -231,6 +244,7 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
                 <ul style={{ marginLeft: '1rem', marginTop: '0.25rem' }}>
                   <li><strong>permitted.token:</strong> Token contract address</li>
                   <li><strong>permitted.amount:</strong> Amount to transfer</li>
+                  <li><strong>spender:</strong> Contract address that will spend tokens</li>
                   <li><strong>nonce:</strong> Unique nonce for replay protection</li>
                   <li><strong>deadline:</strong> Expiration timestamp</li>
                 </ul>
@@ -255,6 +269,7 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
       "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238",  // token
       "1500300000"  // amount
     ],
+    "0x51F8418D9c64E67c243DCb8f10771bA83bcd9Aa8",  // spender (contract)
     "1",  // nonce
     "1740000000"  // deadline
   ],

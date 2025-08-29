@@ -48,6 +48,17 @@ body {
   font-weight: 700;
 }
 
+.circle-logo {
+  display: flex;
+  align-items: center;
+  color: white;
+}
+
+.circle-logo svg {
+  height: 32px;
+  width: auto;
+}
+
 .settings-button {
   background: rgba(255, 255, 255, 0.2);
   border: 2px solid rgba(255, 255, 255, 0.3);

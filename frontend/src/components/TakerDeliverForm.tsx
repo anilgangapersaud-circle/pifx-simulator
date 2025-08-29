@@ -29,6 +29,12 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
   const [error, setError] = useState<string | null>(null);
   const [signingMethod, setSigningMethod] = useState<'circle' | 'web3'>('circle');
   const [deliverType, setDeliverType] = useState<'taker' | 'maker'>(flowType || 'taker');
+  
+  // Permit2 approval state
+  const [permit2Loading, setPermit2Loading] = useState(false);
+  const [permit2Approved, setPermit2Approved] = useState<{[token: string]: boolean}>({});
+  const [permit2Response, setPermit2Response] = useState<any>(null);
+  const [permit2Error, setPermit2Error] = useState<string | null>(null);
 
   // Auto-populate wallet ID when it changes
   React.useEffect(() => {
@@ -62,6 +68,11 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       return;
     }
 
+    if (!formData.tradeId) {
+      setError('Please enter a trade ID - it is required for the witness in the permit signature');
+      return;
+    }
+
     // Validation based on signing method
     if (signingMethod === 'circle') {
       if (!state.walletApiKey || !state.entitySecret || !formData.walletId) {
@@ -82,7 +93,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       // Generate random nonce and future deadline
       const randomNonce = Math.floor(Math.random() * 1000000);
       const currentTimestamp = Math.floor(Date.now() / 1000);
-      const futureDeadline = currentTimestamp + 3600; // 1 hour from now
+      const futureDeadline = 1759159650;
 
       console.log('🔐 Generating Permit2 signature...');
       console.log('Token:', formData.permitToken);
@@ -90,11 +101,10 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       console.log('Nonce:', randomNonce);
       console.log('Deadline:', futureDeadline);
 
-                 // Permit2 domain configuration (standard Permit2 format)
         const domain = {
-          name: 'Permit2',
-          chainId: 11155111, // Sepolia
-          verifyingContract: '0x000000000022D473030F116dDEE9F6B43aC78BA3' 
+            name: 'Permit2',
+            chainId: 11155111, // Sepolia
+            verifyingContract: '0x000000000022D473030F116dDEE9F6B43aC78BA3' 
         };
 
       // EIP-712 types including domain
@@ -104,14 +114,19 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
           { name: 'chainId', type: 'uint256' },
           { name: 'verifyingContract', type: 'address' }
         ],
-        PermitTransferFrom: [
+        PermitWitnessTransferFrom: [
           { name: 'permitted', type: 'TokenPermissions' },
+          { name: 'spender', type: 'address' },
           { name: 'nonce', type: 'uint256' },
-          { name: 'deadline', type: 'uint256' }
+          { name: 'deadline', type: 'uint256' },
+          { name: 'witness', type: 'TradeWitness' }
         ],
         TokenPermissions: [
           { name: 'token', type: 'address' },
           { name: 'amount', type: 'uint256' }
+        ],
+        TradeWitness: [
+          { name: 'id', type: 'uint256' }
         ]
       };
 
@@ -120,8 +135,12 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
           token: formData.permitToken,
           amount: parseInt(formData.permitAmount) // Convert to numeric
         },
+        spender: "0xF7029EE5108069bBf7927e75C6B8dBd99e6c6572", // The contract address that will spend the tokens
         nonce: randomNonce,
-        deadline: futureDeadline
+        deadline: futureDeadline,
+        witness: {
+          id: parseInt(formData.tradeId) // The trade ID as witness
+        }
       };
 
       // Debug logging
@@ -132,7 +151,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       const typedData = {
         domain,
         types,
-        primaryType: 'PermitTransferFrom',
+        primaryType: 'PermitWitnessTransferFrom',
         message
       };
 
@@ -193,7 +212,8 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
             signerAddress: signingMethod === 'web3' ? responseData.wallet?.address : undefined,
             actualSigningWallet: signingMethod === 'web3' ? responseData.wallet : undefined,
             signature: signature,
-            permitData: message
+            permitData: message,
+            typedData: typedData
           }
         });
 
@@ -222,7 +242,64 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
     }
   };
 
+  const approvePermit2 = async () => {
+    if (!formData.permitToken) {
+      setPermit2Error('Please select a token to approve');
+      return;
+    }
 
+    if (!state.walletApiKey || !state.entitySecret || !formData.walletId) {
+      setPermit2Error('Circle credentials (API Key, Entity Secret, Wallet ID) are required');
+      return;
+    }
+
+    setPermit2Loading(true);
+    setPermit2Error(null);
+    setPermit2Response(null);
+
+    try {
+      console.log('🔓 Approving Permit2 for token:', formData.permitToken);
+
+      const payload = {
+        walletApiKey: state.walletApiKey,
+        entitySecret: state.entitySecret,
+        walletId: formData.walletId,
+        tokenAddress: formData.permitToken,
+        refId: formData.refId || undefined
+      };
+
+      console.log('Permit2 Approval Request:', payload);
+
+      const result = await axios.post('http://localhost:3001/api/approvePermit2', payload);
+
+      console.log('✅ Permit2 approval successful!', result.data);
+
+      // Update approval state
+      setPermit2Approved(prev => ({
+        ...prev,
+        [formData.permitToken]: true
+      }));
+
+      setPermit2Response(result.data);
+
+      // Show success message
+      console.log('🎉 Token approved for Permit2 transfers');
+
+    } catch (err: any) {
+      let errorMessage = 'Failed to approve Permit2';
+      if (err.response) {
+        console.error('❌ Server response:', err.response.data);
+        errorMessage = err.response.data?.error || err.response.data?.message || `HTTP ${err.response.status}`;
+      } else if (err.request) {
+        errorMessage = 'No response from server. Please check your connection and ensure the backend is running.';
+      } else {
+        errorMessage = err.message || 'Unknown error occurred';
+      }
+      setPermit2Error(errorMessage);
+    } finally {
+      setPermit2Loading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -234,6 +311,12 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
 
     // For taker deliver, all permit fields are required
     if (deliverType === 'taker') {
+      // Check if Permit2 is approved for the token
+      if (formData.permitToken && !permit2Approved[formData.permitToken]) {
+        setError('Please approve Permit2 contract for this token before executing taker deliver');
+        return;
+      }
+
       if (!formData.permitToken || !formData.permitAmount || !formData.permitNonce || !formData.permitDeadline || !formData.signature) {
         setError('All permit fields and signature are required for Taker Deliver');
         return;
@@ -630,14 +713,152 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
             </div>
           </div>
 
+          {/* Permit2 Approval Section */}
+          {formData.permitToken && deliverType === 'taker' && (
+            <div style={{ 
+              marginBottom: '2rem', 
+              padding: '1.5rem', 
+              backgroundColor: permit2Approved[formData.permitToken] ? '#f0fff4' : '#fffaf0', 
+              border: `2px solid ${permit2Approved[formData.permitToken] ? '#38a169' : '#ed8936'}`,
+              borderRadius: '8px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', marginBottom: '1rem' }}>
+                <span style={{ fontSize: '1.5rem', marginRight: '0.5rem' }}>
+                  {permit2Approved[formData.permitToken] ? '✅' : '🔓'}
+                </span>
+                <h3 style={{ 
+                  margin: 0, 
+                  color: permit2Approved[formData.permitToken] ? '#38a169' : '#ed8936' 
+                }}>
+                  Step 1: Approve Permit2 Contract
+                </h3>
+              </div>
+              
+              <p style={{ 
+                margin: '0 0 1rem 0', 
+                fontSize: '0.95rem', 
+                color: '#4a5568' 
+              }}>
+                {permit2Approved[formData.permitToken] 
+                  ? '✅ This token is approved for Permit2 transfers. You can now generate and sign permits.'
+                  : 'Before you can use Permit2 signatures, you need to approve the Permit2 contract to spend your tokens. This is a one-time approval per token.'
+                }
+              </p>
+
+              {!permit2Approved[formData.permitToken] && (
+                <div style={{ textAlign: 'center' }}>
+                  <button 
+                    type="button" 
+                    onClick={approvePermit2}
+                    style={{
+                      padding: '0.75rem 1.5rem',
+                      fontSize: '1rem',
+                      fontWeight: 'bold',
+                      backgroundColor: '#ed8936',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 4px rgba(237, 137, 54, 0.3)'
+                    }}
+                    disabled={permit2Loading || !state.walletApiKey || !state.entitySecret || !formData.walletId}
+                  >
+                    {permit2Loading ? 'Approving...' : '🔓 Approve Permit2 Contract'}
+                  </button>
+                  
+                  {(!state.walletApiKey || !state.entitySecret || !formData.walletId) && (
+                    <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#718096' }}>
+                      Configure Circle credentials in Settings to enable approval
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Permit2 Response Display */}
+              {permit2Error && (
+                <div style={{ 
+                  marginTop: '1rem',
+                  padding: '1rem', 
+                  backgroundColor: '#fed7d7', 
+                  border: '1px solid #e53e3e', 
+                  borderRadius: '6px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '1.2rem' }}>❌</span>
+                    <div>
+                      <strong style={{ color: '#e53e3e' }}>Approval Error:</strong>
+                      <div style={{ marginTop: '0.5rem', color: '#2d3748' }}>
+                        {permit2Error}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {permit2Response && (
+                <div style={{ 
+                  marginTop: '1rem',
+                  padding: '1rem', 
+                  backgroundColor: '#f0fff4', 
+                  border: '1px solid #38a169', 
+                  borderRadius: '6px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <span style={{ fontSize: '1.2rem' }}>✅</span>
+                    <strong style={{ color: '#38a169' }}>Permit2 Approved!</strong>
+                  </div>
+                  <div style={{ fontSize: '0.9rem', color: '#2c5aa0' }}>
+                    <strong>Transaction ID:</strong> {permit2Response.id}<br/>
+                    <strong>Status:</strong> {permit2Response.state}<br/>
+                    <strong>Token:</strong> {permit2Response.tokenAddress}<br/>
+                    <strong>Approval:</strong> Unlimited (recommended for Permit2)
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Generate Permit Button */}
-          <div style={{ marginBottom: '2rem', textAlign: 'center' }}>
+          <div style={{ 
+            marginBottom: '2rem', 
+            textAlign: 'center',
+            padding: '1.5rem',
+            backgroundColor: formData.signature ? '#f0fff4' : '#f7fafc',
+            border: `2px solid ${formData.signature ? '#38a169' : '#e2e8f0'}`,
+            borderRadius: '8px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
+              <span style={{ fontSize: '1.5rem', marginRight: '0.5rem' }}>
+                {formData.signature ? '✅' : '🔐'}
+              </span>
+              <h3 style={{ 
+                margin: 0, 
+                color: formData.signature ? '#38a169' : '#4a5568'
+              }}>
+                Step 2: Generate & Sign Permit
+              </h3>
+            </div>
+            
+            {deliverType === 'taker' && formData.permitToken && !permit2Approved[formData.permitToken] && (
+              <div style={{ 
+                marginBottom: '1rem',
+                padding: '0.75rem',
+                backgroundColor: '#fffaf0',
+                border: '1px solid #ed8936',
+                borderRadius: '4px',
+                fontSize: '0.9rem',
+                color: '#8b5738'
+              }}>
+                ⚠️ Please approve Permit2 contract first (Step 1 above)
+              </div>
+            )}
+            
             <button 
               type="button" 
               onClick={generateAndSignPermit}
               className="example-button"
               style={{ 
-                backgroundColor: '#667eea', 
+                backgroundColor: formData.signature ? '#38a169' : '#667eea', 
                 fontWeight: 'bold',
                 padding: '0.75rem 1.5rem',
                 fontSize: '1rem',
@@ -645,14 +866,16 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                 border: 'none',
                 color: 'white',
                 cursor: 'pointer',
-                boxShadow: '0 2px 4px rgba(102, 126, 234, 0.3)'
+                boxShadow: `0 2px 4px rgba(${formData.signature ? '56, 161, 105' : '102, 126, 234'}, 0.3)`,
+                opacity: (deliverType === 'taker' && formData.permitToken && !permit2Approved[formData.permitToken]) ? 0.6 : 1
               }}
-              title="Generate random nonce/deadline and sign permit with web3js"
-              disabled={loading || !formData.permitToken || !formData.permitAmount || 
+              title="Generate random nonce/deadline and sign permit"
+              disabled={loading || !formData.permitToken || !formData.permitAmount || !formData.tradeId ||
+                (deliverType === 'taker' && formData.permitToken && !permit2Approved[formData.permitToken]) ||
                 (signingMethod === 'circle' && (!state.walletApiKey || !state.entitySecret || !formData.walletId)) ||
                 (signingMethod === 'web3' && !formData.privateKey)}
             >
-              🔐 {loading ? 'Signing...' : 'Generate & Sign Permit'}
+              {formData.signature ? '✅ Permit Ready' : (loading ? 'Signing...' : '🔐 Generate & Sign Permit')}
             </button>
             {((signingMethod === 'circle' && (!formData.permitToken || !formData.permitAmount || !state.walletApiKey || !state.entitySecret || !formData.walletId)) ||
              (signingMethod === 'web3' && (!formData.permitToken || !formData.permitAmount || !formData.privateKey))) && (
@@ -766,22 +989,78 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
           </div>
         </fieldset>
 
-        <button 
-          type="submit" 
-          className="submit-button"
-          disabled={loading}
-          style={{ 
-            marginTop: '2rem', 
-            width: '100%', 
-            padding: '1rem 2rem', 
-            fontSize: '1.1rem',
-            fontWeight: 'bold',
-            backgroundColor: '#319795',
-            borderColor: '#319795'
-          }}
-        >
-          {loading ? `Executing ${deliverType} Deliver...` : `Execute ${deliverType === 'taker' ? 'Taker' : 'Maker'} Deliver`}
-        </button>
+        <div style={{
+          marginTop: '2rem',
+          padding: '1.5rem',
+          backgroundColor: '#e6fffa',
+          border: '2px solid #319795',
+          borderRadius: '8px',
+          textAlign: 'center'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
+            <span style={{ fontSize: '1.5rem', marginRight: '0.5rem' }}>🚀</span>
+            <h3 style={{ margin: 0, color: '#319795' }}>
+              Step 3: Execute {deliverType === 'taker' ? 'Taker' : 'Maker'} Deliver
+            </h3>
+          </div>
+          
+          {deliverType === 'taker' && (
+            <div style={{ marginBottom: '1rem' }}>
+              {!permit2Approved[formData.permitToken] && formData.permitToken && (
+                <div style={{ 
+                  marginBottom: '0.5rem',
+                  padding: '0.5rem',
+                  backgroundColor: '#fffaf0',
+                  border: '1px solid #ed8936',
+                  borderRadius: '4px',
+                  fontSize: '0.85rem',
+                  color: '#8b5738'
+                }}>
+                  ⚠️ Approve Permit2 contract first
+                </div>
+              )}
+              {!formData.signature && formData.permitToken && permit2Approved[formData.permitToken] && (
+                <div style={{ 
+                  marginBottom: '0.5rem',
+                  padding: '0.5rem',
+                  backgroundColor: '#f0f8ff',
+                  border: '1px solid #667eea',
+                  borderRadius: '4px',
+                  fontSize: '0.85rem',
+                  color: '#4a5568'
+                }}>
+                  🔐 Generate permit signature first
+                </div>
+              )}
+            </div>
+          )}
+          
+          <button 
+            type="submit" 
+            className="submit-button"
+            disabled={loading || 
+              (deliverType === 'taker' && formData.permitToken && !permit2Approved[formData.permitToken]) ||
+              (deliverType === 'taker' && !formData.signature)
+            }
+            style={{ 
+              width: '100%', 
+              padding: '1rem 2rem', 
+              fontSize: '1.1rem',
+              fontWeight: 'bold',
+              backgroundColor: (deliverType === 'taker' && formData.permitToken && !permit2Approved[formData.permitToken]) || 
+                              (deliverType === 'taker' && !formData.signature) ? '#a0aec0' : '#319795',
+              borderColor: (deliverType === 'taker' && formData.permitToken && !permit2Approved[formData.permitToken]) || 
+                          (deliverType === 'taker' && !formData.signature) ? '#a0aec0' : '#319795',
+              border: 'none',
+              borderRadius: '6px',
+              color: 'white',
+              cursor: (deliverType === 'taker' && formData.permitToken && !permit2Approved[formData.permitToken]) || 
+                     (deliverType === 'taker' && !formData.signature) ? 'not-allowed' : 'pointer'
+            }}
+          >
+            {loading ? `Executing ${deliverType} Deliver...` : `🚀 Execute ${deliverType === 'taker' ? 'Taker' : 'Maker'} Deliver`}
+          </button>
+        </div>
       </form>
 
       {/* Response Display */}
@@ -861,7 +1140,8 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                     <span style={{ fontSize: '1.1rem' }}>🔐</span>
                     <strong style={{ color: '#319795' }}>Permit Signature Generated</strong>
                   </div>
-                  <div style={{ fontSize: '0.9rem', color: '#2c5aa0' }}>
+                  
+                  <div style={{ fontSize: '0.9rem', color: '#2c5aa0', marginBottom: '1rem' }}>
                     <strong>Method:</strong> {response.details.signingMethod}<br/>
                     <strong>Signer:</strong> {response.details.signerInfo}<br/>
                     {response.details.permitData && (
@@ -872,6 +1152,100 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                       </>
                     )}
                   </div>
+
+                  {/* Show the signature */}
+                  <div style={{ marginBottom: '1rem' }}>
+                    <strong style={{ color: '#319795' }}>📝 Generated Signature:</strong>
+                    <div style={{ 
+                      backgroundColor: '#f0f8ff', 
+                      border: '1px solid #90cdf4', 
+                      borderRadius: '4px', 
+                      padding: '0.75rem',
+                      fontFamily: 'monospace',
+                      fontSize: '0.8rem',
+                      wordBreak: 'break-all',
+                      marginTop: '0.5rem'
+                    }}>
+                      {response.details.signature}
+                    </div>
+                  </div>
+
+                  {/* Show the typed data that was signed */}
+                  {response.details.typedData && (
+                    <details style={{ marginTop: '1rem' }}>
+                      <summary style={{ 
+                        cursor: 'pointer', 
+                        fontWeight: 'bold', 
+                        color: '#319795',
+                        marginBottom: '0.5rem'
+                      }}>
+                        📋 EIP-712 Typed Data (Signed)
+                      </summary>
+                      <div style={{ marginTop: '0.5rem' }}>
+                        {/* Domain */}
+                        <div style={{ marginBottom: '1rem' }}>
+                          <strong style={{ color: '#2d3748' }}>Domain:</strong>
+                          <pre style={{ 
+                            backgroundColor: '#f8f9fa', 
+                            border: '1px solid #e2e8f0', 
+                            borderRadius: '4px', 
+                            padding: '0.5rem', 
+                            fontSize: '0.8rem',
+                            marginTop: '0.25rem',
+                            margin: '0.25rem 0 0 0'
+                          }}>
+                            {JSON.stringify(response.details.typedData.domain, null, 2)}
+                          </pre>
+                        </div>
+
+                        {/* Types */}
+                        <div style={{ marginBottom: '1rem' }}>
+                          <strong style={{ color: '#2d3748' }}>Types:</strong>
+                          <pre style={{ 
+                            backgroundColor: '#f8f9fa', 
+                            border: '1px solid #e2e8f0', 
+                            borderRadius: '4px', 
+                            padding: '0.5rem', 
+                            fontSize: '0.8rem',
+                            marginTop: '0.25rem',
+                            margin: '0.25rem 0 0 0'
+                          }}>
+                            {JSON.stringify(response.details.typedData.types, null, 2)}
+                          </pre>
+                        </div>
+
+                        {/* Message */}
+                        <div style={{ marginBottom: '1rem' }}>
+                          <strong style={{ color: '#2d3748' }}>Message:</strong>
+                          <pre style={{ 
+                            backgroundColor: '#f8f9fa', 
+                            border: '1px solid #e2e8f0', 
+                            borderRadius: '4px', 
+                            padding: '0.5rem', 
+                            fontSize: '0.8rem',
+                            marginTop: '0.25rem',
+                            margin: '0.25rem 0 0 0'
+                          }}>
+                            {JSON.stringify(response.details.typedData.message, null, 2)}
+                          </pre>
+                        </div>
+
+                        {/* Primary Type */}
+                        <div>
+                          <strong style={{ color: '#2d3748' }}>Primary Type:</strong>
+                          <code style={{ 
+                            backgroundColor: '#f0f8ff', 
+                            padding: '0.25rem 0.5rem',
+                            borderRadius: '3px',
+                            marginLeft: '0.5rem',
+                            fontSize: '0.85rem'
+                          }}>
+                            {response.details.typedData.primaryType}
+                          </code>
+                        </div>
+                      </div>
+                    </details>
+                  )}
                 </div>
               )}
 
