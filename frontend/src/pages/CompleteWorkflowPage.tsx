@@ -49,10 +49,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
         quoteComplete: true
       }));
       
-      // Auto-advance to trade step after successful quote creation
-      setTimeout(() => {
-        setCurrentStep('trade');
-      }, 1500);
+      // User must manually proceed to next step
     }
   };
 
@@ -67,10 +64,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
         tradeComplete: true
       }));
       
-      // Auto-advance to presign step after successful trade creation
-      setTimeout(() => {
-        setCurrentStep('presign');
-      }, 1500);
+      // User must manually proceed to next step
     }
   };
 
@@ -85,10 +79,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
         getTradesComplete: true
       }));
       
-      // Auto-advance to presign step after successful trades retrieval
-      setTimeout(() => {
-        setCurrentStep('presign');
-      }, 1500);
+      // User must manually proceed to next step
     }
   };
 
@@ -103,10 +94,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
         presignComplete: true
       }));
       
-      // Auto-advance to signing step after successful presign data retrieval
-      setTimeout(() => {
-        setCurrentStep('sign');
-      }, 1500);
+      // User must manually proceed to next step
     }
   };
 
@@ -121,10 +109,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
         signComplete: true
       }));
       
-      // Auto-advance to register step after successful signing
-      setTimeout(() => {
-        setCurrentStep('register');
-      }, 1500);
+      // User must manually proceed to next step
     }
   };
 
@@ -139,10 +124,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
         registerComplete: true
       }));
       
-      // Auto-advance to delivery step after successful registration
-      setTimeout(() => {
-        setCurrentStep('deliver');
-      }, 1500);
+      // User must manually proceed to next step
     }
   };
 
@@ -157,10 +139,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
         deliveryComplete: true
       }));
       
-      // Auto-advance to complete step
-      setTimeout(() => {
-        setCurrentStep('complete');
-      }, 1500);
+      // User must manually proceed to complete step
     }
   };
 

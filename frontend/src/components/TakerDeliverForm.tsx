@@ -10,7 +10,7 @@ interface TakerDeliverFormProps {
 
 const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState, flowType }) => {
   const [formData, setFormData] = useState({
-    contractAddress: '0x51F8418D9c64E67c243DCb8f10771bA83bcd9Aa8', // FxEscrow proxy contract
+    contractAddress: '0xF7029EE5108069bBf7927e75C6B8dBd99e6c6572', // FxEscrow proxy contract
     walletId: state.walletId || '',
     refId: '',
     tradeId: '',
@@ -35,6 +35,11 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
   const [permit2Approved, setPermit2Approved] = useState<{[token: string]: boolean}>({});
   const [permit2Response, setPermit2Response] = useState<any>(null);
   const [permit2Error, setPermit2Error] = useState<string | null>(null);
+
+  // Balance checking state
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [balanceData, setBalanceData] = useState<any>(null);
+  const [balanceError, setBalanceError] = useState<string | null>(null);
 
   // Auto-populate wallet ID when it changes
   React.useEffect(() => {
@@ -101,19 +106,15 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       console.log('Nonce:', randomNonce);
       console.log('Deadline:', futureDeadline);
 
-        const domain = {
+      const domain = {
             name: 'Permit2',
             chainId: 11155111, // Sepolia
             verifyingContract: '0x000000000022D473030F116dDEE9F6B43aC78BA3' 
-        };
+      };
 
-      // EIP-712 types including domain
-      const types = {
-        EIP712Domain: [
-          { name: 'name', type: 'string' },
-          { name: 'chainId', type: 'uint256' },
-          { name: 'verifyingContract', type: 'address' }
-        ],
+      // EIP-712 types (excluding EIP712Domain which goes in domain object)
+      // Only include types that are actually referenced in the type chain
+      const types: Record<string, Array<{name: string, type: string}>> = {
         PermitWitnessTransferFrom: [
           { name: 'permitted', type: 'TokenPermissions' },
           { name: 'spender', type: 'address' },
@@ -135,7 +136,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
           token: formData.permitToken,
           amount: parseInt(formData.permitAmount) // Convert to numeric
         },
-        spender: "0xF7029EE5108069bBf7927e75C6B8dBd99e6c6572", // The contract address that will spend the tokens
+        spender: "0x51F8418D9c64E67c243DCb8f10771bA83bcd9Aa8", // The contract address that will spend the tokens
         nonce: randomNonce,
         deadline: futureDeadline,
         witness: {
@@ -156,6 +157,29 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       };
 
       console.log('📝 Signing typed data:', JSON.stringify(typedData, null, 2));
+      
+      // Validate that all types in the types object are actually used
+      const usedTypes = new Set(['PermitWitnessTransferFrom']); // Start with primary type
+      const findReferencedTypes = (typeName: string): void => {
+        if (types[typeName]) {
+          types[typeName].forEach((field: any) => {
+            if (field.type && types[field.type] && !usedTypes.has(field.type)) {
+              usedTypes.add(field.type);
+              findReferencedTypes(field.type);
+            }
+          });
+        }
+      };
+      
+      findReferencedTypes('PermitWitnessTransferFrom');
+      console.log('🔍 Used types:', Array.from(usedTypes));
+      console.log('🔍 Defined types:', Object.keys(types));
+      
+      // Check for unused types
+      const unusedTypes = Object.keys(types).filter(t => !usedTypes.has(t));
+      if (unusedTypes.length > 0) {
+        console.warn('⚠️ Unused types detected:', unusedTypes);
+      }
 
       let result;
       let signerInfo = '';
@@ -248,9 +272,17 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       return;
     }
 
-    if (!state.walletApiKey || !state.entitySecret || !formData.walletId) {
-      setPermit2Error('Circle credentials (API Key, Entity Secret, Wallet ID) are required');
-      return;
+    // Validation based on signing method
+    if (signingMethod === 'circle') {
+      if (!state.walletApiKey || !state.entitySecret || !formData.walletId) {
+        setPermit2Error('Circle credentials (API Key, Entity Secret, Wallet ID) are required for programmable wallet approval');
+        return;
+      }
+    } else {
+      if (!formData.privateKey) {
+        setPermit2Error('Private key is required for ethers wallet approval');
+        return;
+      }
     }
 
     setPermit2Loading(true);
@@ -258,19 +290,36 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
     setPermit2Response(null);
 
     try {
-      console.log('🔓 Approving Permit2 for token:', formData.permitToken);
+      console.log(`🔓 Approving Permit2 for token using ${signingMethod === 'circle' ? 'Circle SDK' : 'ethers wallet'}:`, formData.permitToken);
 
-      const payload = {
-        walletApiKey: state.walletApiKey,
-        entitySecret: state.entitySecret,
-        walletId: formData.walletId,
-        tokenAddress: formData.permitToken,
-        refId: formData.refId || undefined
-      };
+      let payload: any;
+      let endpoint: string;
 
-      console.log('Permit2 Approval Request:', payload);
+      if (signingMethod === 'circle') {
+        // Circle SDK approval
+        payload = {
+          walletApiKey: state.walletApiKey,
+          entitySecret: state.entitySecret,
+          walletId: formData.walletId,
+          tokenAddress: formData.permitToken,
+          refId: formData.refId || undefined
+        };
+        endpoint = 'http://localhost:3001/api/approvePermit2';
+      } else {
+        // Ethers wallet approval
+        payload = {
+          privateKey: formData.privateKey,
+          tokenAddress: formData.permitToken,
+          rpcUrl: undefined, // Will use default Sepolia RPC
+          gasLimit: undefined, // Will estimate gas
+          gasPrice: undefined // Will use current gas price
+        };
+        endpoint = 'http://localhost:3001/api/web3/approvePermit2';
+      }
 
-      const result = await axios.post('http://localhost:3001/api/approvePermit2', payload);
+      console.log(`Permit2 Approval Request (${signingMethod}):`, payload);
+
+      const result = await axios.post(endpoint, payload);
 
       console.log('✅ Permit2 approval successful!', result.data);
 
@@ -283,10 +332,10 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       setPermit2Response(result.data);
 
       // Show success message
-      console.log('🎉 Token approved for Permit2 transfers');
+      console.log(`🎉 Token approved for Permit2 transfers using ${signingMethod === 'circle' ? 'Circle SDK' : 'ethers wallet'}`);
 
     } catch (err: any) {
-      let errorMessage = 'Failed to approve Permit2';
+      let errorMessage = `Failed to approve Permit2 using ${signingMethod === 'circle' ? 'Circle SDK' : 'ethers wallet'}`;
       if (err.response) {
         console.error('❌ Server response:', err.response.data);
         errorMessage = err.response.data?.error || err.response.data?.message || `HTTP ${err.response.status}`;
@@ -298,6 +347,87 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       setPermit2Error(errorMessage);
     } finally {
       setPermit2Loading(false);
+    }
+  };
+
+  const checkWalletBalance = async () => {
+    // Validation based on signing method
+    if (signingMethod === 'circle') {
+      if (!state.walletApiKey || !state.entitySecret || !formData.walletId) {
+        setBalanceError('Circle credentials (API Key, Entity Secret, Wallet ID) are required to check wallet balance');
+        return;
+      }
+    } else {
+      if (!formData.privateKey) {
+        setBalanceError('Private key is required to check Web3.js wallet balance');
+        return;
+      }
+    }
+
+    setBalanceLoading(true);
+    setBalanceError(null);
+    setBalanceData(null);
+
+    try {
+      console.log(`🔍 Checking ${signingMethod === 'circle' ? 'Circle SDK' : 'Web3.js'} wallet balance...`);
+      
+      let response;
+
+      if (signingMethod === 'circle') {
+        // Circle SDK balance check
+        const params = new URLSearchParams({
+          walletApiKey: state.walletApiKey,
+          entitySecret: state.entitySecret
+        });
+
+        // Add token address if specified
+        if (formData.permitToken) {
+          params.append('tokenAddress', formData.permitToken);
+        }
+
+        response = await axios.get(
+          `http://localhost:3001/api/wallet/balance/${formData.walletId}?${params}`,
+        );
+      } else {
+        // Web3.js balance check
+        const payload = {
+          privateKey: formData.privateKey,
+          tokenAddress: formData.permitToken || undefined
+        };
+
+        response = await axios.post(
+          'http://localhost:3001/api/wallet/balance/web3',
+          payload
+        );
+      }
+
+      console.log('💰 Balance check response:', response.data);
+      setBalanceData(response.data);
+
+      // Show success message in console
+      if (response.data.success) {
+        console.log(`✅ ${signingMethod === 'circle' ? 'Circle SDK' : 'Web3.js'} Wallet Balance Check Complete:`);
+        console.log(`📍 Address: ${response.data.walletAddress}`);
+        console.log(`💎 ETH Balance: ${response.data.ethBalance.formatted}`);
+        console.log(`⛽ Sufficient Gas: ${response.data.hasSufficientGas ? 'Yes' : 'No'}`);
+        
+        if (response.data.tokenBalance) {
+          console.log(`🪙 Token Balance: ${response.data.tokenBalance.formatted}`);
+        }
+      }
+
+    } catch (err: any) {
+      let errorMessage = `Failed to check ${signingMethod === 'circle' ? 'Circle SDK' : 'Web3.js'} wallet balance`;
+      if (err.response) {
+        console.error('❌ Balance check server response:', err.response.data);
+        errorMessage = err.response.data?.error || err.response.data?.message || errorMessage;
+      } else {
+        console.error('❌ Balance check error:', err);
+        errorMessage = err.message || errorMessage;
+      }
+      setBalanceError(errorMessage);
+    } finally {
+      setBalanceLoading(false);
     }
   };
 
@@ -330,6 +460,19 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
     }
     // For maker deliver, permit fields are optional but form is shown for consistency
 
+    // Validation based on signing method
+    if (signingMethod === 'circle') {
+      if (!state.walletApiKey || !state.entitySecret || !formData.walletId) {
+        setError('Circle credentials (API Key, Entity Secret, Wallet ID) are required for programmable wallet execution');
+        return;
+      }
+    } else {
+      if (!formData.privateKey) {
+        setError('Private key is required for ethers wallet execution');
+        return;
+      }
+    }
+
     setLoading(true);
     setError(null);
     setResponse(null);
@@ -338,40 +481,79 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       let payload;
       let endpoint;
 
-      if (deliverType === 'taker') {
-        // Construct the request payload for Circle SDK takerDeliver function
-        payload = {
-          walletApiKey: state.walletApiKey,
-          entitySecret: state.entitySecret,
-          contractAddress: formData.contractAddress,
-          walletId: formData.walletId,
-          refId: formData.refId || undefined, // Only include if provided
-          tradeId: parseInt(formData.tradeId), // Convert to integer as required by contract
-          permit: {
-            permitted: {
-              token: formData.permitToken,
-              amount: parseInt(formData.permitAmount) // Convert to numeric
+      if (signingMethod === 'circle') {
+        // Circle SDK implementation
+        if (deliverType === 'taker') {
+          // Construct the request payload for Circle SDK takerDeliver function
+          payload = {
+            walletApiKey: state.walletApiKey,
+            entitySecret: state.entitySecret,
+            contractAddress: formData.contractAddress,
+            walletId: formData.walletId,
+            refId: formData.refId || undefined, // Only include if provided
+            tradeId: parseInt(formData.tradeId), // Convert to integer as required by contract
+            permit: {
+              permitted: {
+                token: formData.permitToken,
+                amount: parseInt(formData.permitAmount) // Convert to numeric
+              },
+              nonce: parseInt(formData.permitNonce), // Convert to numeric
+              deadline: parseInt(formData.permitDeadline) // Convert to numeric
             },
-            nonce: parseInt(formData.permitNonce), // Convert to numeric
-            deadline: parseInt(formData.permitDeadline) // Convert to numeric
-          },
-          signature: formData.signature
-        };
-        endpoint = 'http://localhost:3001/api/takerDeliver';
-      } else {
-        // Construct the request payload for Circle SDK makerDeliver function
-        payload = {
-          walletApiKey: state.walletApiKey,
-          entitySecret: state.entitySecret,
-          contractAddress: formData.contractAddress,
-          walletId: formData.walletId,
-          refId: formData.refId || undefined, // Only include if provided
-          tradeId: parseInt(formData.tradeId) // Convert to integer as required by contract
-        };
-        endpoint = 'http://localhost:3001/api/makerDeliver';
-      }
+            signature: formData.signature
+          };
+          endpoint = 'http://localhost:3001/api/takerDeliver';
+        } else {
+          // Construct the request payload for Circle SDK makerDeliver function
+          payload = {
+            walletApiKey: state.walletApiKey,
+            entitySecret: state.entitySecret,
+            contractAddress: formData.contractAddress,
+            walletId: formData.walletId,
+            refId: formData.refId || undefined, // Only include if provided
+            tradeId: parseInt(formData.tradeId) // Convert to integer as required by contract
+          };
+          endpoint = 'http://localhost:3001/api/makerDeliver';
+        }
 
-      console.log(`Circle SDK ${deliverType}Deliver Function Request:`, payload);
+        console.log(`Circle SDK ${deliverType}Deliver Function Request:`, payload);
+      } else {
+        // Web3js/Ethers implementation
+        if (deliverType === 'taker') {
+          // Construct the request payload for Web3js takerDeliver function
+          payload = {
+            privateKey: formData.privateKey,
+            contractAddress: formData.contractAddress,
+            rpcUrl: undefined, // Will use default Sepolia RPC
+            gasLimit: undefined, // Will estimate gas
+            gasPrice: undefined, // Will use current gas price
+            tradeId: parseInt(formData.tradeId), // Convert to integer as required by contract
+            permit: {
+              permitted: {
+                token: formData.permitToken,
+                amount: parseInt(formData.permitAmount) // Convert to numeric
+              },
+              nonce: parseInt(formData.permitNonce), // Convert to numeric
+              deadline: parseInt(formData.permitDeadline) // Convert to numeric
+            },
+            signature: formData.signature
+          };
+          endpoint = 'http://localhost:3001/api/web3/takerDeliver';
+        } else {
+          // Construct the request payload for Web3js makerDeliver function
+          payload = {
+            privateKey: formData.privateKey,
+            contractAddress: formData.contractAddress,
+            rpcUrl: undefined, // Will use default Sepolia RPC
+            gasLimit: undefined, // Will estimate gas
+            gasPrice: undefined, // Will use current gas price
+            tradeId: parseInt(formData.tradeId) // Convert to integer as required by contract
+          };
+          endpoint = 'http://localhost:3001/api/web3/makerDeliver';
+        }
+
+        console.log(`Web3js ${deliverType}Deliver Function Request:`, payload);
+      }
 
       const result = await axios.post(endpoint, payload);
 
@@ -545,6 +727,90 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                     ✓ Auto-populated from settings
                   </small>
                 )}
+                
+                {/* Balance Check Button and Display */}
+                <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#f7fafc', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                    <label style={{ fontWeight: 'bold', color: '#2d3748', margin: 0 }}>Wallet Balance</label>
+                    <button
+                      type="button"
+                      onClick={checkWalletBalance}
+                      disabled={balanceLoading || 
+                        (signingMethod === 'circle' && (!state.walletApiKey || !state.entitySecret || !formData.walletId)) ||
+                        (signingMethod !== 'circle' && !formData.privateKey)}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        backgroundColor: balanceLoading ? '#cbd5e0' : '#4299e1',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        fontSize: '0.85rem',
+                        cursor: balanceLoading || 
+                          (signingMethod === 'circle' && (!state.walletApiKey || !state.entitySecret || !formData.walletId)) ||
+                          (signingMethod !== 'circle' && !formData.privateKey) ? 'not-allowed' : 'pointer',
+                        opacity: balanceLoading || 
+                          (signingMethod === 'circle' && (!state.walletApiKey || !state.entitySecret || !formData.walletId)) ||
+                          (signingMethod !== 'circle' && !formData.privateKey) ? 0.6 : 1
+                      }}
+                    >
+                      {balanceLoading ? '🔍 Checking...' : '💰 Check Balance'}
+                    </button>
+                  </div>
+                  
+                  {balanceError && (
+                    <div style={{ 
+                      padding: '0.75rem', 
+                      backgroundColor: '#fed7d7', 
+                      color: '#c53030', 
+                      borderRadius: '4px', 
+                      fontSize: '0.9rem',
+                      marginBottom: '0.5rem'
+                    }}>
+                      ❌ {balanceError}
+                    </div>
+                  )}
+                  
+                  {balanceData && balanceData.success && (
+                    <div style={{ 
+                      padding: '0.75rem', 
+                      backgroundColor: '#c6f6d5', 
+                      color: '#22543d', 
+                      borderRadius: '4px', 
+                      fontSize: '0.9rem' 
+                    }}>
+                      <div style={{ marginBottom: '0.5rem' }}>
+                        <strong>📍 Address:</strong> <code style={{ fontSize: '0.85rem' }}>{balanceData.walletAddress}</code>
+                      </div>
+                      <div style={{ marginBottom: '0.5rem' }}>
+                        <strong>💎 ETH Balance:</strong> {balanceData.ethBalance.formatted}
+                        {balanceData.hasSufficientGas ? 
+                          <span style={{ color: '#38a169', marginLeft: '0.5rem' }}>✅ Sufficient for gas</span> : 
+                          <span style={{ color: '#e53e3e', marginLeft: '0.5rem' }}>⚠️ Low balance</span>
+                        }
+                      </div>
+                      {balanceData.tokenBalance && !balanceData.tokenBalance.error && (
+                        <div style={{ marginBottom: '0.5rem' }}>
+                          <strong>🪙 Token Balance:</strong> {balanceData.tokenBalance.formatted}
+                          {balanceData.tokenBalance.hasBalance ? 
+                            <span style={{ color: '#38a169', marginLeft: '0.5rem' }}>✅ Has tokens</span> : 
+                            <span style={{ color: '#e53e3e', marginLeft: '0.5rem' }}>⚠️ No tokens</span>
+                          }
+                        </div>
+                      )}
+                      {balanceData.tokenBalance && balanceData.tokenBalance.error && (
+                        <div style={{ color: '#e53e3e', fontSize: '0.85rem' }}>
+                          ⚠️ Token balance check failed: {balanceData.tokenBalance.details}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {(!state.walletApiKey || !state.entitySecret || !formData.walletId) && (
+                    <small style={{ color: '#718096', fontSize: '0.85rem' }}>
+                      Configure Circle credentials and wallet ID to check balance
+                    </small>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="form-group">
@@ -561,6 +827,84 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                 <small style={{ color: '#718096', fontSize: '0.85rem' }}>
                   Your private key for signing the permit. This is used directly for signing and never stored.
                 </small>
+                
+                {/* Balance Check Button and Display for Web3.js */}
+                <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#f7fafc', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                    <label style={{ fontWeight: 'bold', color: '#2d3748', margin: 0 }}>Wallet Balance</label>
+                    <button
+                      type="button"
+                      onClick={checkWalletBalance}
+                      disabled={balanceLoading || !formData.privateKey}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        backgroundColor: balanceLoading ? '#cbd5e0' : '#4299e1',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        fontSize: '0.85rem',
+                        cursor: balanceLoading || !formData.privateKey ? 'not-allowed' : 'pointer',
+                        opacity: balanceLoading || !formData.privateKey ? 0.6 : 1
+                      }}
+                    >
+                      {balanceLoading ? '🔍 Checking...' : '💰 Check Balance'}
+                    </button>
+                  </div>
+                  
+                  {balanceError && (
+                    <div style={{ 
+                      padding: '0.75rem', 
+                      backgroundColor: '#fed7d7', 
+                      color: '#c53030', 
+                      borderRadius: '4px', 
+                      fontSize: '0.9rem',
+                      marginBottom: '0.5rem'
+                    }}>
+                      ❌ {balanceError}
+                    </div>
+                  )}
+                  
+                  {balanceData && balanceData.success && (
+                    <div style={{ 
+                      padding: '0.75rem', 
+                      backgroundColor: '#c6f6d5', 
+                      color: '#22543d', 
+                      borderRadius: '4px', 
+                      fontSize: '0.9rem' 
+                    }}>
+                      <div style={{ marginBottom: '0.5rem' }}>
+                        <strong>📍 Address:</strong> <code style={{ fontSize: '0.85rem' }}>{balanceData.walletAddress}</code>
+                      </div>
+                      <div style={{ marginBottom: '0.5rem' }}>
+                        <strong>💎 ETH Balance:</strong> {balanceData.ethBalance.formatted}
+                        {balanceData.hasSufficientGas ? 
+                          <span style={{ color: '#38a169', marginLeft: '0.5rem' }}>✅ Sufficient for gas</span> : 
+                          <span style={{ color: '#e53e3e', marginLeft: '0.5rem' }}>⚠️ Low balance</span>
+                        }
+                      </div>
+                      {balanceData.tokenBalance && !balanceData.tokenBalance.error && (
+                        <div style={{ marginBottom: '0.5rem' }}>
+                          <strong>🪙 Token Balance:</strong> {balanceData.tokenBalance.formatted}
+                          {balanceData.tokenBalance.hasBalance ? 
+                            <span style={{ color: '#38a169', marginLeft: '0.5rem' }}>✅ Has tokens</span> : 
+                            <span style={{ color: '#e53e3e', marginLeft: '0.5rem' }}>⚠️ No tokens</span>
+                          }
+                        </div>
+                      )}
+                      {balanceData.tokenBalance && balanceData.tokenBalance.error && (
+                        <div style={{ color: '#e53e3e', fontSize: '0.85rem' }}>
+                          ⚠️ Token balance check failed: {balanceData.tokenBalance.details}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {!formData.privateKey && (
+                    <small style={{ color: '#718096', fontSize: '0.85rem' }}>
+                      Enter a private key to check wallet balance
+                    </small>
+                  )}
+                </div>
               </div>
             )}
 
@@ -761,14 +1105,23 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                       cursor: 'pointer',
                       boxShadow: '0 2px 4px rgba(237, 137, 54, 0.3)'
                     }}
-                    disabled={permit2Loading || !state.walletApiKey || !state.entitySecret || !formData.walletId}
+                    disabled={permit2Loading || 
+                      (signingMethod === 'circle' && (!state.walletApiKey || !state.entitySecret || !formData.walletId)) ||
+                      (signingMethod === 'web3' && !formData.privateKey)}
                   >
-                    {permit2Loading ? 'Approving...' : '🔓 Approve Permit2 Contract'}
+                    {permit2Loading 
+                      ? `Approving with ${signingMethod === 'circle' ? 'Circle SDK' : 'Ethers Wallet'}...` 
+                      : `🔓 Approve Permit2 (${signingMethod === 'circle' ? 'Circle SDK' : 'Ethers Wallet'})`
+                    }
                   </button>
                   
-                  {(!state.walletApiKey || !state.entitySecret || !formData.walletId) && (
+                  {((signingMethod === 'circle' && (!state.walletApiKey || !state.entitySecret || !formData.walletId)) ||
+                    (signingMethod === 'web3' && !formData.privateKey)) && (
                     <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#718096' }}>
-                      Configure Circle credentials in Settings to enable approval
+                      {signingMethod === 'circle' 
+                        ? 'Configure Circle credentials in Settings to enable approval'
+                        : 'Enter a private key to enable ethers wallet approval'
+                      }
                     </div>
                   )}
                 </div>

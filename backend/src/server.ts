@@ -739,18 +739,59 @@ app.post('/api/wallet/generateAndSign', async (req, res) => {
     const ethersWallet = new ethers.Wallet(privateKey);
     console.log('✍️  Signing typed data with ethers...');
     
+    // Remove EIP712Domain from types if present (ethers.js handles domain separately)
+    const { EIP712Domain, ...cleanTypes } = typedData.types;
+    if (EIP712Domain) {
+      console.log('🧹 Removed EIP712Domain from types object (ethers.js handles this separately)');
+    }
+    
+    // Validate that all remaining types are actually used in the type chain
+    const validateTypes = (types: any, primaryType: string): any => {
+      const usedTypes = new Set([primaryType]);
+      const findReferencedTypes = (typeName: string): void => {
+        if (types[typeName]) {
+          types[typeName].forEach((field: any) => {
+            if (field.type && types[field.type] && !usedTypes.has(field.type)) {
+              usedTypes.add(field.type);
+              findReferencedTypes(field.type);
+            }
+          });
+        }
+      };
+      
+      findReferencedTypes(primaryType);
+      const definedTypes = Object.keys(types);
+      const unusedTypes = definedTypes.filter(t => !usedTypes.has(t));
+      
+      if (unusedTypes.length > 0) {
+        console.warn('⚠️ Removing unused types:', unusedTypes);
+        const filteredTypes: any = {};
+        usedTypes.forEach(typeName => {
+          if (types[typeName]) {
+            filteredTypes[typeName] = types[typeName];
+          }
+        });
+        return filteredTypes;
+      }
+      
+      return types;
+    };
+    
+    // Clean up unused types to avoid ethers.js validation errors
+    const finalTypes = validateTypes(cleanTypes, typedData.primaryType);
     
     console.log('📝 Signing with:', {
       domain: typedData.domain,
-      typesCount: Object.keys(typedData.types).length,
+      typesCount: Object.keys(finalTypes).length,
       primaryType: typedData.primaryType || 'auto-detected',
       hasMessage: !!typedData.message,
-      usingDefaultDomain: !typedData.domain
+      removedEIP712Domain: !!EIP712Domain,
+      finalTypeNames: Object.keys(finalTypes)
     });
     
     const signature = await ethersWallet.signTypedData(
       typedData.domain,
-      typedData.types,
+      finalTypes,
       typedData.message
     );
 
@@ -769,8 +810,14 @@ app.post('/api/wallet/generateAndSign', async (req, res) => {
           original: typedData,
           usedForSigning: {
             domain: typedData.domain,
-            types: typedData.types,
+            types: finalTypes,
             message: typedData.message
+          },
+          cleanedTypes: {
+            removedEIP712Domain: !!EIP712Domain,
+            originalTypeCount: Object.keys(typedData.types).length,
+            finalTypeCount: Object.keys(finalTypes).length,
+            removedTypes: Object.keys(typedData.types).filter(t => !finalTypes[t])
           }
         },
         metadata: {
@@ -1085,6 +1132,207 @@ app.post('/api/approvePermit2', async (req, res) => {
   }
 });
 
+// POST /api/web3/approvePermit2 - Approve Permit2 contract to spend tokens using Web3js/ethers
+app.post('/api/web3/approvePermit2', async (req, res) => {
+  try {
+    const {
+      privateKey,
+      tokenAddress,
+      rpcUrl,
+      gasLimit,
+      gasPrice
+    } = req.body;
+
+    // Validate required fields
+    if (!privateKey) {
+      return res.status(400).json({
+        error: 'privateKey is required for ethers wallet approval'
+      });
+    }
+
+    if (!tokenAddress) {
+      return res.status(400).json({
+        error: 'tokenAddress is required'
+      });
+    }
+
+    const permit2Address = '0x000000000022D473030F116dDEE9F6B43aC78BA3'; // Permit2 contract address
+
+    console.log('=== Ethers Wallet Permit2 Approval Request ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Token Address:', tokenAddress);
+    console.log('Permit2 Address:', permit2Address);
+    console.log('===============================================');
+
+    // Use provided RPC URL or default to Sepolia
+    const rpcEndpoint = rpcUrl || 'https://ethereum-sepolia-rpc.publicnode.com';
+    
+    // Initialize Web3
+    const web3 = new Web3(rpcEndpoint);
+    
+    // Add private key to wallet
+    const account = web3.eth.accounts.privateKeyToAccount(privateKey);
+    web3.eth.accounts.wallet.add(account);
+    
+    // ERC20 ABI for approve function
+    const ERC20_ABI = [
+      {
+        "inputs": [
+          {"internalType": "address", "name": "spender", "type": "address"},
+          {"internalType": "uint256", "name": "amount", "type": "uint256"}
+        ],
+        "name": "approve",
+        "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      }
+    ];
+    
+    // Create token contract instance
+    const tokenContract = new web3.eth.Contract(ERC20_ABI, tokenAddress);
+    
+    // Use max uint256 for unlimited approval (common pattern)
+    const maxUint256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
+
+    console.log('=== Permit2 Approval Transaction Parameters ===');
+    console.log('From Address:', account.address);
+    console.log('Token Contract:', tokenAddress);
+    console.log('Spender (Permit2):', permit2Address);
+    console.log('Amount (max uint256):', maxUint256);
+    console.log('================================================');
+
+    // Check if the token contract exists and is valid
+    try {
+      const tokenCode = await web3.eth.getCode(tokenAddress);
+      if (tokenCode === '0x') {
+        return res.status(400).json({
+          error: 'Invalid token address - no contract found at this address',
+          tokenAddress: tokenAddress
+        });
+      }
+      console.log('✅ Token contract verified at address:', tokenAddress);
+    } catch (error) {
+      console.error('Failed to verify token contract:', error);
+      return res.status(400).json({
+        error: 'Failed to verify token contract',
+        details: error
+      });
+    }
+
+    // Check account balance
+    try {
+      const balance = await web3.eth.getBalance(account.address);
+      console.log('Account ETH Balance:', web3.utils.fromWei(balance, 'ether'), 'ETH');
+      
+      if (balance === 0n || balance.toString() === '0') {
+        console.warn('⚠️  Account has 0 ETH balance - transaction may fail');
+      }
+    } catch (error) {
+      console.warn('Could not check account balance:', error);
+    }
+
+    // Check current allowance
+    try {
+      const currentAllowance = await tokenContract.methods.allowance(account.address, permit2Address).call();
+      console.log('Current Permit2 Allowance:', currentAllowance);
+      
+      if (currentAllowance && currentAllowance.toString() !== '0') {
+        console.log('ℹ️  Token already has some allowance for Permit2. Proceeding with max approval.');
+      }
+    } catch (error) {
+      console.warn('Could not check current allowance (contract may not be ERC20):', error);
+    }
+
+    // Estimate gas if not provided
+    let estimatedGas = gasLimit;
+    if (!estimatedGas) {
+      try {
+        estimatedGas = await tokenContract.methods.approve(permit2Address, maxUint256)
+          .estimateGas({ from: account.address });
+        console.log('Estimated Gas:', estimatedGas);
+      } catch (gasError: any) {
+        console.error('Gas estimation failed:', gasError);
+        
+        // Enhanced error reporting
+        let errorDetails = {
+          message: gasError.message,
+          code: gasError.code,
+          reason: gasError.reason || 'Unknown',
+          data: gasError.data
+        };
+        
+        // Common error scenarios
+        if (gasError.message.includes('insufficient funds')) {
+          errorDetails.reason = 'Insufficient ETH balance for gas fees';
+        } else if (gasError.message.includes('execution reverted')) {
+          errorDetails.reason = 'Smart contract execution reverted - check token contract validity';
+        } else if (gasError.message.includes('invalid address')) {
+          errorDetails.reason = 'Invalid token or spender address';
+        }
+        
+        return res.status(400).json({
+          error: 'Failed to estimate gas for approval transaction',
+          details: errorDetails,
+          suggestions: [
+            'Verify the token contract address is correct',
+            'Ensure account has sufficient ETH for gas fees',
+            'Check if token is a valid ERC20 contract',
+            'Try with a different RPC endpoint'
+          ]
+        });
+      }
+    }
+
+    // Get gas price if not provided
+    let txGasPrice = gasPrice;
+    if (!txGasPrice) {
+      txGasPrice = await web3.eth.getGasPrice();
+      console.log('Current Gas Price:', web3.utils.fromWei(txGasPrice, 'gwei'), 'gwei');
+    }
+
+    // Execute the approval transaction
+    const txData = tokenContract.methods.approve(permit2Address, maxUint256);
+
+    const tx = {
+      from: account.address,
+      to: tokenAddress,
+      data: txData.encodeABI(),
+      gas: estimatedGas,
+      gasPrice: txGasPrice
+    };
+
+    console.log('🚀 Sending approval transaction...');
+    const receipt = await web3.eth.sendTransaction(tx);
+    
+    console.log('✅ Permit2 Approval Transaction Successful!');
+    console.log('Transaction Hash:', receipt.transactionHash);
+    console.log('Block Number:', receipt.blockNumber);
+    console.log('Gas Used:', receipt.gasUsed);
+
+    // Return the response (convert BigInt values to strings for JSON serialization)
+    res.json({
+      success: true,
+      transactionHash: receipt.transactionHash,
+      blockNumber: receipt.blockNumber.toString(),
+      gasUsed: receipt.gasUsed.toString(),
+      from: account.address,
+      tokenAddress,
+      permit2Address,
+      approvedAmount: 'unlimited',
+      method: 'Web3js Permit2 Approval'
+    });
+
+  } catch (error: any) {
+    console.error('❌ Ethers Permit2 Approval Error:', error);
+
+    res.status(500).json({
+      error: error.message || 'An unknown error occurred during Permit2 approval',
+      method: 'Web3js Permit2 Approval',
+      details: error.toString()
+    });
+  }
+});
+
 // POST /api/takerDeliver - Execute takerDeliver function on FxEscrow contract using Circle SDK
 app.post('/api/takerDeliver', async (req, res) => {
   try {
@@ -1340,6 +1588,285 @@ app.get('/api/wallet/info/:walletId', async (req, res) => {
     
     let statusCode = 500;
     let errorMessage = 'Failed to get wallet information';
+    let errorDetails = null;
+
+    if (error.response) {
+      statusCode = error.response.status || 500;
+      errorMessage = error.response.data?.message || error.response.data?.error || errorMessage;
+      errorDetails = error.response.data;
+    } else {
+      errorMessage = error.message || errorMessage;
+    }
+
+    res.status(statusCode).json({
+      error: errorMessage,
+      details: errorDetails,
+      originalError: error.message
+    });
+  }
+});
+
+// GET /api/wallet/balance - Check wallet ETH and token balances
+app.get('/api/wallet/balance/:walletId', async (req, res) => {
+  try {
+    const { walletId } = req.params;
+    const { walletApiKey, entitySecret, tokenAddress } = req.query;
+
+    if (!walletApiKey || !entitySecret) {
+      return res.status(400).json({
+        error: 'walletApiKey and entitySecret are required as query parameters'
+      });
+    }
+
+    if (!walletId) {
+      return res.status(400).json({
+        error: 'walletId is required'
+      });
+    }
+
+    console.log('=== Wallet Balance Check ===');
+    console.log('Wallet ID:', walletId);
+    console.log('Token Address:', tokenAddress || 'ETH only');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('============================');
+
+    // Initialize the Circle SDK client
+    const circleClient = initiateDeveloperControlledWalletsClient({
+      apiKey: walletApiKey as string,
+      entitySecret: entitySecret as string
+    });
+
+    // Get wallet details to get the address
+    const walletResponse = await circleClient.getWallet({ id: walletId });
+    const walletAddress = (walletResponse.data as any)?.address;
+
+    if (!walletAddress) {
+      return res.status(404).json({
+        error: 'Wallet address not found'
+      });
+    }
+
+    console.log('Wallet Address:', walletAddress);
+
+    // Initialize Web3 for balance checking
+    const web3 = new Web3(process.env.SEPOLIA_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com');
+
+    // Check ETH balance
+    const ethBalance = await web3.eth.getBalance(walletAddress);
+    const ethBalanceEther = web3.utils.fromWei(ethBalance, 'ether');
+
+    const result: any = {
+      success: true,
+      walletId,
+      walletAddress,
+      ethBalance: {
+        wei: ethBalance.toString(),
+        ether: ethBalanceEther,
+        formatted: `${parseFloat(ethBalanceEther).toFixed(6)} ETH`
+      },
+      hasSufficientGas: parseFloat(ethBalanceEther) > 0.001 // Minimum for gas fees
+    };
+
+    // If token address is provided, check token balance
+    if (tokenAddress) {
+      try {
+        // ERC20 ABI for balanceOf function
+        const erc20Abi = [
+          {
+            "constant": true,
+            "inputs": [{"name": "_owner", "type": "address"}],
+            "name": "balanceOf",
+            "outputs": [{"name": "balance", "type": "uint256"}],
+            "type": "function"
+          },
+          {
+            "constant": true,
+            "inputs": [],
+            "name": "decimals",
+            "outputs": [{"name": "", "type": "uint8"}],
+            "type": "function"
+          },
+          {
+            "constant": true,
+            "inputs": [],
+            "name": "symbol",
+            "outputs": [{"name": "", "type": "string"}],
+            "type": "function"
+          }
+        ];
+
+        const tokenContract = new web3.eth.Contract(erc20Abi, tokenAddress as string);
+        
+        // Get token balance, decimals, and symbol
+        const [tokenBalance, decimals, symbol] = await Promise.all([
+          tokenContract.methods.balanceOf(walletAddress).call(),
+          tokenContract.methods.decimals().call().catch(() => 18), // Default to 18 if not available
+          tokenContract.methods.symbol().call().catch(() => 'TOKEN') // Default symbol
+        ]);
+
+        const tokenBalanceFormatted = (Number(tokenBalance) / Math.pow(10, Number(decimals))).toFixed(6);
+
+        result.tokenBalance = {
+          raw: tokenBalance ? tokenBalance.toString() : '0',
+          formatted: `${tokenBalanceFormatted} ${symbol ? symbol.toString() : 'TOKEN'}`,
+          decimals: Number(decimals),
+          symbol: symbol ? symbol.toString() : 'TOKEN',
+          hasBalance: tokenBalance ? Number(tokenBalance) > 0 : false
+        };
+
+        console.log(`Token Balance (${symbol}):`, tokenBalanceFormatted);
+      } catch (tokenError) {
+        console.warn('Failed to get token balance:', tokenError);
+        result.tokenBalance = {
+          error: 'Failed to get token balance',
+          details: tokenError instanceof Error ? tokenError.message : 'Unknown error'
+        };
+      }
+    }
+
+    console.log('ETH Balance:', ethBalanceEther, 'ETH');
+    console.log('Has sufficient gas:', result.hasSufficientGas);
+
+    res.json(result);
+
+  } catch (error: any) {
+    console.error('Balance Check Error:', error);
+    
+    let statusCode = 500;
+    let errorMessage = 'Failed to check wallet balance';
+    let errorDetails = null;
+
+    if (error.response) {
+      statusCode = error.response.status || 500;
+      errorMessage = error.response.data?.message || error.response.data?.error || errorMessage;
+      errorDetails = error.response.data;
+    } else {
+      errorMessage = error.message || errorMessage;
+    }
+
+    res.status(statusCode).json({
+      error: errorMessage,
+      details: errorDetails,
+      originalError: error.message
+    });
+  }
+});
+
+// POST /api/wallet/balance/web3 - Check Web3.js wallet ETH and token balances using private key
+app.post('/api/wallet/balance/web3', async (req, res) => {
+  try {
+    const { privateKey, tokenAddress } = req.body;
+
+    if (!privateKey) {
+      return res.status(400).json({
+        error: 'privateKey is required in the request body'
+      });
+    }
+
+    console.log('=== Web3.js Wallet Balance Check ===');
+    console.log('Token Address:', tokenAddress || 'ETH only');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('=====================================');
+
+    // Initialize Web3 for balance checking
+    const web3 = new Web3(process.env.SEPOLIA_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com');
+
+    // Create account from private key to get the address
+    let walletAddress: string;
+    try {
+      const account = web3.eth.accounts.privateKeyToAccount(privateKey);
+      walletAddress = account.address;
+    } catch (keyError) {
+      return res.status(400).json({
+        error: 'Invalid private key format',
+        details: 'Private key must be a valid 64-character hex string (with or without 0x prefix)'
+      });
+    }
+
+    console.log('Wallet Address:', walletAddress);
+
+    // Check ETH balance
+    const ethBalance = await web3.eth.getBalance(walletAddress);
+    const ethBalanceEther = web3.utils.fromWei(ethBalance, 'ether');
+
+    const result: any = {
+      success: true,
+      walletAddress,
+      ethBalance: {
+        wei: ethBalance.toString(),
+        ether: ethBalanceEther,
+        formatted: `${parseFloat(ethBalanceEther).toFixed(6)} ETH`
+      },
+      hasSufficientGas: parseFloat(ethBalanceEther) > 0.001 // Minimum for gas fees
+    };
+
+    // If token address is provided, check token balance
+    if (tokenAddress) {
+      try {
+        // ERC20 ABI for balanceOf function
+        const erc20Abi = [
+          {
+            "constant": true,
+            "inputs": [{"name": "_owner", "type": "address"}],
+            "name": "balanceOf",
+            "outputs": [{"name": "balance", "type": "uint256"}],
+            "type": "function"
+          },
+          {
+            "constant": true,
+            "inputs": [],
+            "name": "decimals",
+            "outputs": [{"name": "", "type": "uint8"}],
+            "type": "function"
+          },
+          {
+            "constant": true,
+            "inputs": [],
+            "name": "symbol",
+            "outputs": [{"name": "", "type": "string"}],
+            "type": "function"
+          }
+        ];
+
+        const tokenContract = new web3.eth.Contract(erc20Abi, tokenAddress);
+        
+        // Get token balance, decimals, and symbol
+        const [tokenBalance, decimals, symbol] = await Promise.all([
+          tokenContract.methods.balanceOf(walletAddress).call(),
+          tokenContract.methods.decimals().call().catch(() => 18), // Default to 18 if not available
+          tokenContract.methods.symbol().call().catch(() => 'TOKEN') // Default symbol
+        ]);
+
+        const tokenBalanceFormatted = (Number(tokenBalance) / Math.pow(10, Number(decimals))).toFixed(6);
+
+        result.tokenBalance = {
+          raw: tokenBalance ? tokenBalance.toString() : '0',
+          formatted: `${tokenBalanceFormatted} ${symbol ? symbol.toString() : 'TOKEN'}`,
+          decimals: Number(decimals),
+          symbol: symbol ? symbol.toString() : 'TOKEN',
+          hasBalance: tokenBalance ? Number(tokenBalance) > 0 : false
+        };
+
+        console.log(`Token Balance (${symbol}):`, tokenBalanceFormatted);
+      } catch (tokenError) {
+        console.warn('Failed to get token balance:', tokenError);
+        result.tokenBalance = {
+          error: 'Failed to get token balance',
+          details: tokenError instanceof Error ? tokenError.message : 'Unknown error'
+        };
+      }
+    }
+
+    console.log('ETH Balance:', ethBalanceEther, 'ETH');
+    console.log('Has sufficient gas:', result.hasSufficientGas);
+
+    res.json(result);
+
+  } catch (error: any) {
+    console.error('Web3.js Balance Check Error:', error);
+    
+    let statusCode = 500;
+    let errorMessage = 'Failed to check Web3.js wallet balance';
     let errorDetails = null;
 
     if (error.response) {
@@ -1647,6 +2174,492 @@ app.post('/api/makerDeliver', async (req, res) => {
     res.status(error.response?.status || 500).json({
       error: error.message,
       details: error.response?.data || null
+    });
+  }
+});
+
+// FxEscrow Contract ABI (extracted from full ABI)
+const FXESCROW_ABI = [
+  {
+    "type": "function",
+    "name": "takerDeliver",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "permit",
+        "type": "tuple",
+        "internalType": "struct IPermit2.PermitTransferFrom",
+        "components": [
+          {
+            "name": "permitted",
+            "type": "tuple",
+            "internalType": "struct IPermit2.TokenPermissions",
+            "components": [
+              {
+                "name": "token",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "amount",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ]
+          },
+          {
+            "name": "nonce",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "deadline",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "signature",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "makerDeliver",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "permit",
+        "type": "tuple",
+        "internalType": "struct IPermit2.PermitTransferFrom",
+        "components": [
+          {
+            "name": "permitted",
+            "type": "tuple",
+            "internalType": "struct IPermit2.TokenPermissions",
+            "components": [
+              {
+                "name": "token",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "amount",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ]
+          },
+          {
+            "name": "nonce",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "deadline",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "signature",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  }
+];
+
+// POST /api/web3/takerDeliver - Execute takerDeliver function using Web3js
+app.post('/api/web3/takerDeliver', async (req, res) => {
+  try {
+    const {
+      privateKey,
+      contractAddress,
+      rpcUrl,
+      tradeId,
+      permit,
+      signature,
+      gasLimit,
+      gasPrice
+    } = req.body;
+
+    // Validate required fields
+    if (!privateKey) {
+      return res.status(400).json({
+        error: 'privateKey is required for Web3js transaction'
+      });
+    }
+
+    if (!contractAddress) {
+      return res.status(400).json({
+        error: 'contractAddress is required'
+      });
+    }
+
+    // Validate trade data
+    if (tradeId === undefined || tradeId === null) {
+      return res.status(400).json({
+        error: 'tradeId is required'
+      });
+    }
+
+    // Validate tradeId is a positive integer
+    const tradeIdNumber = parseInt(tradeId);
+    if (isNaN(tradeIdNumber) || tradeIdNumber < 0) {
+      return res.status(400).json({
+        error: 'tradeId must be a valid non-negative integer'
+      });
+    }
+
+    // Validate permit structure
+    if (!permit || !permit.permitted || !permit.nonce || !permit.deadline) {
+      return res.status(400).json({
+        error: 'permit must include permitted, nonce, and deadline fields'
+      });
+    }
+
+    if (!permit.permitted.token || !permit.permitted.amount) {
+      return res.status(400).json({
+        error: 'permit.permitted must include token and amount fields'
+      });
+    }
+
+    if (!signature) {
+      return res.status(400).json({
+        error: 'signature is required'
+      });
+    }
+
+    console.log('=== Web3js TakerDeliver Request ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Contract Address:', contractAddress);
+    console.log('Trade ID:', tradeIdNumber);
+    console.log('Permit:', JSON.stringify(permit, null, 2));
+    console.log('Signature:', signature);
+    console.log('=====================================');
+
+    // Use provided RPC URL or default to Sepolia
+    const rpcEndpoint = rpcUrl || 'https://ethereum-sepolia-rpc.publicnode.com';
+    
+    // Initialize Web3
+    const web3 = new Web3(rpcEndpoint);
+    
+    // Add private key to wallet
+    const account = web3.eth.accounts.privateKeyToAccount(privateKey);
+    web3.eth.accounts.wallet.add(account);
+    
+    // Create contract instance
+    const contract = new web3.eth.Contract(FXESCROW_ABI, contractAddress);
+    
+    // Prepare function call data
+    const permitStruct = [
+      [permit.permitted.token, permit.permitted.amount.toString()], // TokenPermissions
+      permit.nonce.toString(),
+      permit.deadline.toString()
+    ];
+
+    console.log('=== Web3js Transaction Parameters ===');
+    console.log('From Address:', account.address);
+    console.log('Trade ID:', tradeIdNumber);
+    console.log('Permit Struct:', permitStruct);
+    console.log('Signature:', signature);
+    console.log('=====================================');
+
+    // Estimate gas if not provided
+    let estimatedGas = gasLimit;
+    if (!estimatedGas) {
+      try {
+        estimatedGas = await contract.methods.takerDeliver(
+          tradeIdNumber,
+          permitStruct,
+          signature
+        ).estimateGas({ from: account.address });
+        console.log('Estimated Gas:', estimatedGas);
+      } catch (gasError: any) {
+        console.error('Gas estimation failed:', gasError);
+        return res.status(400).json({
+          error: 'Failed to estimate gas for transaction',
+          details: gasError.message
+        });
+      }
+    }
+
+    // Get gas price if not provided
+    let txGasPrice = gasPrice;
+    if (!txGasPrice) {
+      txGasPrice = await web3.eth.getGasPrice();
+      console.log('Current Gas Price:', web3.utils.fromWei(txGasPrice, 'gwei'), 'gwei');
+    }
+
+    // Execute the transaction
+    const txData = contract.methods.takerDeliver(
+      tradeIdNumber,
+      permitStruct,
+      signature
+    );
+
+    const tx = {
+      from: account.address,
+      to: contractAddress,
+      data: txData.encodeABI(),
+      gas: estimatedGas,
+      gasPrice: txGasPrice
+    };
+
+    console.log('=== Sending Transaction ===');
+    console.log('Transaction:', tx);
+
+    const signedTx = await web3.eth.accounts.signTransaction(tx, privateKey);
+    const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction!);
+
+    console.log('✅ Transaction successful!');
+    console.log('Transaction Hash:', receipt.transactionHash);
+    console.log('Block Number:', receipt.blockNumber);
+    console.log('Gas Used:', receipt.gasUsed);
+
+    res.json({
+      success: true,
+      transactionHash: receipt.transactionHash,
+      blockNumber: receipt.blockNumber,
+      gasUsed: receipt.gasUsed.toString(),
+      from: account.address,
+      to: contractAddress,
+      method: 'takerDeliver',
+      parameters: {
+        tradeId: tradeIdNumber,
+        permit: permit,
+        signature: signature
+      },
+      receipt: receipt
+    });
+
+  } catch (err: any) {
+    console.error('❌ Web3js TakerDeliver Error:', err);
+    
+    let errorMessage = 'Transaction failed';
+    if (err.message) {
+      errorMessage = err.message;
+    }
+    
+    // Handle common Web3 errors
+    if (err.message?.includes('insufficient funds')) {
+      errorMessage = 'Insufficient funds for gas fees';
+    } else if (err.message?.includes('execution reverted')) {
+      errorMessage = 'Transaction reverted - check contract conditions';
+    } else if (err.message?.includes('nonce too low')) {
+      errorMessage = 'Transaction nonce too low - transaction may have already been processed';
+    }
+
+    res.status(500).json({
+      error: errorMessage,
+      details: err.message,
+      method: 'web3.takerDeliver'
+    });
+  }
+});
+
+// POST /api/web3/makerDeliver - Execute makerDeliver function using Web3js
+app.post('/api/web3/makerDeliver', async (req, res) => {
+  try {
+    const {
+      privateKey,
+      contractAddress,
+      rpcUrl,
+      tradeId,
+      permit,
+      signature,
+      gasLimit,
+      gasPrice
+    } = req.body;
+
+    // Validate required fields
+    if (!privateKey) {
+      return res.status(400).json({
+        error: 'privateKey is required for Web3js transaction'
+      });
+    }
+
+    if (!contractAddress) {
+      return res.status(400).json({
+        error: 'contractAddress is required'
+      });
+    }
+
+    // Validate trade data
+    if (tradeId === undefined || tradeId === null) {
+      return res.status(400).json({
+        error: 'tradeId is required'
+      });
+    }
+
+    // Validate tradeId is a positive integer
+    const tradeIdNumber = parseInt(tradeId);
+    if (isNaN(tradeIdNumber) || tradeIdNumber < 0) {
+      return res.status(400).json({
+        error: 'tradeId must be a valid non-negative integer'
+      });
+    }
+
+    // Validate permit structure (required for makerDeliver too based on ABI)
+    if (!permit || !permit.permitted || !permit.nonce || !permit.deadline) {
+      return res.status(400).json({
+        error: 'permit must include permitted, nonce, and deadline fields'
+      });
+    }
+
+    if (!permit.permitted.token || !permit.permitted.amount) {
+      return res.status(400).json({
+        error: 'permit.permitted must include token and amount fields'
+      });
+    }
+
+    if (!signature) {
+      return res.status(400).json({
+        error: 'signature is required'
+      });
+    }
+
+    console.log('=== Web3js MakerDeliver Request ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Contract Address:', contractAddress);
+    console.log('Trade ID:', tradeIdNumber);
+    console.log('Permit:', JSON.stringify(permit, null, 2));
+    console.log('Signature:', signature);
+    console.log('====================================');
+
+    // Use provided RPC URL or default to Sepolia
+    const rpcEndpoint = rpcUrl || 'https://ethereum-sepolia-rpc.publicnode.com';
+    
+    // Initialize Web3
+    const web3 = new Web3(rpcEndpoint);
+    
+    // Add private key to wallet
+    const account = web3.eth.accounts.privateKeyToAccount(privateKey);
+    web3.eth.accounts.wallet.add(account);
+    
+    // Create contract instance
+    const contract = new web3.eth.Contract(FXESCROW_ABI, contractAddress);
+    
+    // Prepare function call data
+    const permitStruct = [
+      [permit.permitted.token, permit.permitted.amount.toString()], // TokenPermissions
+      permit.nonce.toString(),
+      permit.deadline.toString()
+    ];
+
+    console.log('=== Web3js Transaction Parameters ===');
+    console.log('From Address:', account.address);
+    console.log('Trade ID:', tradeIdNumber);
+    console.log('Permit Struct:', permitStruct);
+    console.log('Signature:', signature);
+    console.log('=====================================');
+
+    // Estimate gas if not provided
+    let estimatedGas = gasLimit;
+    if (!estimatedGas) {
+      try {
+        estimatedGas = await contract.methods.makerDeliver(
+          tradeIdNumber,
+          permitStruct,
+          signature
+        ).estimateGas({ from: account.address });
+        console.log('Estimated Gas:', estimatedGas);
+      } catch (gasError: any) {
+        console.error('Gas estimation failed:', gasError);
+        return res.status(400).json({
+          error: 'Failed to estimate gas for transaction',
+          details: gasError.message
+        });
+      }
+    }
+
+    // Get gas price if not provided
+    let txGasPrice = gasPrice;
+    if (!txGasPrice) {
+      txGasPrice = await web3.eth.getGasPrice();
+      console.log('Current Gas Price:', web3.utils.fromWei(txGasPrice, 'gwei'), 'gwei');
+    }
+
+    // Execute the transaction
+    const txData = contract.methods.makerDeliver(
+      tradeIdNumber,
+      permitStruct,
+      signature
+    );
+
+    const tx = {
+      from: account.address,
+      to: contractAddress,
+      data: txData.encodeABI(),
+      gas: estimatedGas,
+      gasPrice: txGasPrice
+    };
+
+    console.log('=== Sending Transaction ===');
+    console.log('Transaction:', tx);
+
+    const signedTx = await web3.eth.accounts.signTransaction(tx, privateKey);
+    const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction!);
+
+    console.log('✅ Transaction successful!');
+    console.log('Transaction Hash:', receipt.transactionHash);
+    console.log('Block Number:', receipt.blockNumber);
+    console.log('Gas Used:', receipt.gasUsed);
+
+    res.json({
+      success: true,
+      transactionHash: receipt.transactionHash,
+      blockNumber: receipt.blockNumber,
+      gasUsed: receipt.gasUsed.toString(),
+      from: account.address,
+      to: contractAddress,
+      method: 'makerDeliver',
+      parameters: {
+        tradeId: tradeIdNumber,
+        permit: permit,
+        signature: signature
+      },
+      receipt: receipt
+    });
+
+  } catch (err: any) {
+    console.error('❌ Web3js MakerDeliver Error:', err);
+    
+    let errorMessage = 'Transaction failed';
+    if (err.message) {
+      errorMessage = err.message;
+    }
+    
+    // Handle common Web3 errors
+    if (err.message?.includes('insufficient funds')) {
+      errorMessage = 'Insufficient funds for gas fees';
+    } else if (err.message?.includes('execution reverted')) {
+      errorMessage = 'Transaction reverted - check contract conditions';
+    } else if (err.message?.includes('nonce too low')) {
+      errorMessage = 'Transaction nonce too low - transaction may have already been processed';
+    }
+
+    res.status(500).json({
+      error: errorMessage,
+      details: err.message,
+      method: 'web3.makerDeliver'
     });
   }
 });
