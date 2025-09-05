@@ -10,7 +10,6 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({ currentPath }) => {
 
   const menuItems = [
     { path: '/', label: 'Complete Workflow', icon: '🔄', method: 'FLOW' },
-    { path: '/breach-trade', label: 'Breach Trade', icon: '⚠️', method: 'CIRCLE' },
     { path: '/get-trades', label: 'Get Trades', icon: '📋', method: 'GET' },
     { path: '/get-trade', label: 'Get Trade by ID', icon: '🔍', method: 'GET' }
   ];

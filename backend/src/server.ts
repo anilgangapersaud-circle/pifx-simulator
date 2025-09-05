@@ -1057,6 +1057,7 @@ app.post('/api/approvePermit2', async (req, res) => {
     console.log('Permit2 Address:', permit2Address);
     console.log('Wallet ID:', walletId);
     console.log('Reference ID:', refId || 'Not provided');
+    console.log('NOTE: Permit2 approvals do not require token ownership');
     console.log('============================================');
 
     // Initialize the Circle SDK client
@@ -1118,8 +1119,21 @@ app.post('/api/approvePermit2', async (req, res) => {
     // Handle specific Circle SDK errors
     if (error.response) {
       console.error('Circle SDK Error Response:', error.response.data);
+      
+      // Log detailed error information for asset amount issues
+      const errorMessage = error.response.data?.message || error.response.data?.error || '';
+      if (errorMessage.toLowerCase().includes('asset') || 
+          errorMessage.toLowerCase().includes('insufficient') || 
+          errorMessage.toLowerCase().includes('balance')) {
+        console.error('🔍 ASSET AMOUNT ERROR DETAILS:');
+        console.error('- Error Message:', errorMessage);
+        console.error('- Full Error Data:', JSON.stringify(error.response.data, null, 2));
+        console.error('- This error occurs during permit2 approval which should not require token ownership');
+        console.error('- Consider checking Circle SDK configuration or token contract implementation');
+      }
+      
       return res.status(error.response.status || 500).json({
-        error: error.response.data?.message || error.response.data?.error || 'Circle SDK request failed',
+        error: errorMessage || 'Circle SDK request failed',
         details: error.response.data,
         method: 'Circle SDK Permit2 Approval'
       });
@@ -1192,6 +1206,7 @@ app.post('/api/web3/approvePermit2', async (req, res) => {
     const tokenContract = new web3.eth.Contract(ERC20_ABI, tokenAddress);
     
     // Use max uint256 for unlimited approval (common pattern)
+    // Note: Permit2 approvals don't require owning tokens - just setting allowance
     const maxUint256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
 
     console.log('=== Permit2 Approval Transaction Parameters ===');
@@ -1323,7 +1338,19 @@ app.post('/api/web3/approvePermit2', async (req, res) => {
     });
 
   } catch (error: any) {
-    console.error('❌ Ethers Permit2 Approval Error:', error);
+    console.error('❌ Web3.js Permit2 Approval Error:', error);
+
+    // Log detailed error information for asset amount issues
+    if (error.message && (
+        error.message.toLowerCase().includes('asset') || 
+        error.message.toLowerCase().includes('insufficient') || 
+        error.message.toLowerCase().includes('balance'))) {
+      console.error('🔍 ASSET AMOUNT ERROR DETAILS:');
+      console.error('- Error Message:', error.message);
+      console.error('- Error Details:', error.toString());
+      console.error('- This error occurs during permit2 approval which should not require token ownership');
+      console.error('- Consider checking token contract implementation or RPC provider');
+    }
 
     res.status(500).json({
       error: error.message || 'An unknown error occurred during Permit2 approval',
@@ -1457,7 +1484,7 @@ app.post('/api/takerDeliver', async (req, res) => {
 
     // Create the contract execution request
     const contractExecutionRequest = {
-      contractAddress: "0x51F8418D9c64E67c243DCb8f10771bA83bcd9Aa8",
+      contractAddress: "0x1f91886C7028986aD885ffCee0e40b75C9cd5aC1",
       walletId: walletId,
       abiFunctionSignature: abiFunctionSignature,
       abiParameters: abiParameters,
@@ -2090,7 +2117,9 @@ app.post('/api/makerDeliver', async (req, res) => {
       walletId,
       contractAddress,
       refId,
-      tradeId
+      tradeId,
+      permit,
+      signature
     } = req.body;
 
     // Validate required Circle SDK fields
@@ -2103,12 +2132,6 @@ app.post('/api/makerDeliver', async (req, res) => {
     if (!walletId) {
       return res.status(400).json({
         error: 'walletId is required'
-      });
-    }
-
-    if (!contractAddress) {
-      return res.status(400).json({
-        error: 'contractAddress is required'
       });
     }
 
@@ -2127,12 +2150,20 @@ app.post('/api/makerDeliver', async (req, res) => {
       });
     }
 
+    if (!signature) {
+      return res.status(400).json({
+        error: 'signature is required'
+      });
+    }
+
     console.log('=== Circle SDK MakerDeliver Request ===');
     console.log('Timestamp:', new Date().toISOString());
     console.log('Wallet ID:', walletId);
     console.log('Contract Address:', contractAddress);
     console.log('Reference ID:', refId || 'Not provided');
     console.log('Trade ID:', tradeIdNumber);
+    console.log('Permit:', JSON.stringify(permit, null, 2));
+    console.log('Signature:', signature);
     console.log('======================================');
 
     // Initialize the Circle SDK client
@@ -2141,16 +2172,43 @@ app.post('/api/makerDeliver', async (req, res) => {
       entitySecret: entitySecret
     });
 
-    // Prepare the contract execution request for makerDeliver function
-    const abiFunctionSignature = `makerDeliver(uint256)`;
-    const abiParameters = [tradeIdNumber];
+    // Prepare the ABI function signature for makerDeliver with PermitTransferFrom (same as takerDeliver)
+    const abiFunctionSignature = "makerDeliver(uint256,((address,uint256),uint256,uint256),bytes)";
+
+    // Convert values to strings for Circle SDK (it expects string representation of large numbers)
+    const ensureString = (value: any) => {
+      if (typeof value === 'string') {
+        return value;
+      }
+      return String(value);
+    };
+
+    // Prepare the ABI parameters array with PermitTransferFrom struct (same as takerDeliver)
+    const abiParameters = [
+      tradeIdNumber, // uint256 tradeId
+      [ // PermitTransferFrom struct
+        [ // TokenPermissions (permitted)
+          permit.permitted.token, // address token
+          permit.permitted.amount // uint256 amount
+        ],
+        ensureString(permit.nonce), // uint256 nonce
+        ensureString(permit.deadline) // uint256 deadline
+      ],
+      signature // bytes signature
+    ];
 
     const contractExecutionRequest = {
-      contractAddress: contractAddress,
+      contractAddress: "0x1f91886C7028986aD885ffCee0e40b75C9cd5aC1",
       walletId: walletId,
       abiFunctionSignature: abiFunctionSignature,
       abiParameters: abiParameters,
-      ...(refId && { refId: refId })
+      fee: {
+        config: {
+          feeLevel: 'MEDIUM' as const
+        },
+        type: 'level' as const
+      },
+      ...(refId && { refId: refId }) // Only include refId if provided
     };
 
     // Execute the makerDeliver function
@@ -2250,6 +2308,110 @@ const FXESCROW_ABI = [
             "name": "permitted",
             "type": "tuple",
             "internalType": "struct IPermit2.TokenPermissions",
+            "components": [
+              {
+                "name": "token",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "amount",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ]
+          },
+          {
+            "name": "nonce",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "deadline",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "signature",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "takerBatchDeliver",
+    "inputs": [
+      {
+        "name": "ids",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "permit",
+        "type": "tuple",
+        "internalType": "struct IPermit2.PermitBatchTransferFrom",
+        "components": [
+          {
+            "name": "permitted",
+            "type": "tuple[]",
+            "internalType": "struct IPermit2.TokenPermissions[]",
+            "components": [
+              {
+                "name": "token",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "amount",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ]
+          },
+          {
+            "name": "nonce",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "deadline",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "signature",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "makerBatchDeliver",
+    "inputs": [
+      {
+        "name": "ids",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "permit",
+        "type": "tuple",
+        "internalType": "struct IPermit2.PermitBatchTransferFrom",
+        "components": [
+          {
+            "name": "permitted",
+            "type": "tuple[]",
+            "internalType": "struct IPermit2.TokenPermissions[]",
             "components": [
               {
                 "name": "token",
@@ -2660,6 +2822,682 @@ app.post('/api/web3/makerDeliver', async (req, res) => {
       error: errorMessage,
       details: err.message,
       method: 'web3.makerDeliver'
+    });
+  }
+});
+
+// POST /api/takerBatchDeliver - Execute takerBatchDeliver function on FxEscrow contract using Circle SDK
+app.post('/api/takerBatchDeliver', async (req, res) => {
+  try {
+    const {
+      walletApiKey,
+      entitySecret,
+      walletId,
+      contractAddress,
+      refId,
+      tradeIds,
+      permit,
+      signature
+    } = req.body;
+
+    // Validate required Circle SDK fields
+    if (!walletApiKey || !entitySecret) {
+      return res.status(400).json({
+        error: 'Both walletApiKey and entitySecret are required for Circle SDK'
+      });
+    }
+
+    if (!walletId) {
+      return res.status(400).json({
+        error: 'walletId is required'
+      });
+    }
+
+    if (!contractAddress) {
+      return res.status(400).json({
+        error: 'contractAddress is required'
+      });
+    }
+
+    // Validate trade data
+    if (!tradeIds || !Array.isArray(tradeIds) || tradeIds.length === 0) {
+      return res.status(400).json({
+        error: 'tradeIds array is required and must not be empty'
+      });
+    }
+
+    // Validate each trade ID
+    const tradeIdNumbers = tradeIds.map((id, index) => {
+      const tradeIdNumber = parseInt(id);
+      if (isNaN(tradeIdNumber) || tradeIdNumber < 0) {
+        throw new Error(`tradeIds[${index}] must be a valid non-negative integer`);
+      }
+      return tradeIdNumber;
+    });
+
+    // Validate batch permit structure
+    if (!permit || !permit.permitted || !permit.nonce || !permit.deadline) {
+      return res.status(400).json({
+        error: 'permit must include permitted, nonce, and deadline fields'
+      });
+    }
+
+    if (!Array.isArray(permit.permitted) || permit.permitted.length === 0) {
+      return res.status(400).json({
+        error: 'permit.permitted must be an array of TokenPermissions for batch operations'
+      });
+    }
+
+    // Validate each TokenPermissions in the batch
+    permit.permitted.forEach((tokenPermission: any, index: number) => {
+      if (!tokenPermission.token || !tokenPermission.amount) {
+        throw new Error(`permit.permitted[${index}] must include token and amount fields`);
+      }
+    });
+
+    if (!signature) {
+      return res.status(400).json({
+        error: 'signature is required'
+      });
+    }
+
+    console.log('=== Circle SDK TakerBatchDeliver Request ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Wallet ID:', walletId);
+    console.log('Contract Address:', contractAddress);
+    console.log('Reference ID:', refId || 'Not provided');
+    console.log('Trade IDs:', tradeIdNumbers);
+    console.log('Permit:', JSON.stringify(permit, null, 2));
+    console.log('Signature:', signature);
+    console.log('===========================================');
+
+    // Initialize the Circle SDK client
+    const circleClient = initiateDeveloperControlledWalletsClient({
+      apiKey: walletApiKey,
+      entitySecret: entitySecret
+    });
+
+    // Prepare the ABI function signature for takerBatchDeliver
+    const abiFunctionSignature = "takerBatchDeliver(uint256[],((address,uint256)[],uint256,uint256),bytes)";
+
+    // Prepare the ABI parameters array with PermitBatchTransferFrom struct
+    const abiParameters = [
+      tradeIdNumbers, // uint256[] ids
+      [ // PermitBatchTransferFrom struct
+        permit.permitted.map((p: any) => [p.token, p.amount]), // TokenPermissions[] permitted
+        permit.nonce, // uint256 nonce
+        permit.deadline // uint256 deadline
+      ],
+      signature // bytes signature
+    ];
+
+    console.log('=== TakerBatchDeliver Function Parameters ===');
+    console.log('Function Signature:', abiFunctionSignature);
+    console.log('Trade IDs:', tradeIdNumbers);
+    console.log('Permitted Tokens:', permit.permitted);
+    console.log('Nonce:', permit.nonce);
+    console.log('Deadline:', permit.deadline);
+    console.log('Signature:', signature);
+    console.log('============================================');
+
+    // Execute the contract function using Circle SDK
+    const result = await circleClient.createContractExecutionTransaction({
+      walletId: walletId,
+      contractAddress: contractAddress,
+      abiFunctionSignature: abiFunctionSignature,
+      abiParameters: abiParameters,
+      refId: refId,
+      fee: {
+        type: 'level',
+        config: {
+          feeLevel: 'MEDIUM'
+        }
+      }
+    });
+
+    console.log('✅ TakerBatchDeliver transaction created successfully!');
+    console.log('Transaction ID:', result.data?.id);
+    console.log('Transaction State:', result.data?.state);
+
+    res.json(result.data);
+
+  } catch (err: any) {
+    console.error('❌ Circle SDK TakerBatchDeliver Error:', err);
+    
+    let errorMessage = 'TakerBatchDeliver transaction failed';
+    if (err.response) {
+      console.error('Server response:', err.response.data);
+      errorMessage = err.response.data?.message || err.response.data?.error || errorMessage;
+    } else if (err.message) {
+      errorMessage = err.message;
+    }
+
+    res.status(500).json({
+      error: errorMessage,
+      details: err.response?.data || err.message,
+      method: 'circle.takerBatchDeliver'
+    });
+  }
+});
+
+// POST /api/makerBatchDeliver - Execute makerBatchDeliver function on FxEscrow contract using Circle SDK
+app.post('/api/makerBatchDeliver', async (req, res) => {
+  try {
+    const {
+      walletApiKey,
+      entitySecret,
+      walletId,
+      contractAddress,
+      refId,
+      tradeIds,
+      permit,
+      signature
+    } = req.body;
+
+    // Validate required Circle SDK fields
+    if (!walletApiKey || !entitySecret) {
+      return res.status(400).json({
+        error: 'Both walletApiKey and entitySecret are required for Circle SDK'
+      });
+    }
+
+    if (!walletId) {
+      return res.status(400).json({
+        error: 'walletId is required'
+      });
+    }
+
+    // Validate trade data
+    if (!tradeIds || !Array.isArray(tradeIds) || tradeIds.length === 0) {
+      return res.status(400).json({
+        error: 'tradeIds array is required and must not be empty'
+      });
+    }
+
+    // Validate each trade ID
+    const tradeIdNumbers = tradeIds.map((id, index) => {
+      const tradeIdNumber = parseInt(id);
+      if (isNaN(tradeIdNumber) || tradeIdNumber < 0) {
+        throw new Error(`tradeIds[${index}] must be a valid non-negative integer`);
+      }
+      return tradeIdNumber;
+    });
+
+    if (!signature) {
+      return res.status(400).json({
+        error: 'signature is required'
+      });
+    }
+
+    console.log('=== Circle SDK MakerBatchDeliver Request ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Wallet ID:', walletId);
+    console.log('Contract Address:', contractAddress);
+    console.log('Reference ID:', refId || 'Not provided');
+    console.log('Trade IDs:', tradeIdNumbers);
+    console.log('Permit:', JSON.stringify(permit, null, 2));
+    console.log('Signature:', signature);
+    console.log('===========================================');
+
+    // Initialize the Circle SDK client
+    const circleClient = initiateDeveloperControlledWalletsClient({
+      apiKey: walletApiKey,
+      entitySecret: entitySecret
+    });
+
+    // Prepare the ABI function signature for takerBatchDeliver
+    const abiFunctionSignature = "makerBatchDeliver(uint256[],((address,uint256)[],uint256,uint256),bytes)";
+
+    // Prepare the ABI parameters array with PermitBatchTransferFrom struct
+    const abiParameters = [
+      tradeIdNumbers, // uint256[] ids
+      [ // PermitBatchTransferFrom struct
+        permit.permitted.map((p: any) => [p.token, p.amount]), // TokenPermissions[] permitted
+        permit.nonce, // uint256 nonce
+        permit.deadline // uint256 deadline
+      ],
+      signature // bytes signature
+    ];
+
+    console.log('=== MakerBatchDeliver Function Parameters ===');
+    console.log('Function Signature:', abiFunctionSignature);
+    console.log('Trade IDs:', tradeIdNumbers);
+    console.log('Permitted Tokens:', permit.permitted);
+    console.log('Nonce:', permit.nonce);
+    console.log('Deadline:', permit.deadline);
+    console.log('Signature:', signature);
+    console.log('============================================');
+
+    // Execute the contract function using Circle SDK
+    const result = await circleClient.createContractExecutionTransaction({
+      walletId: walletId,
+      contractAddress: contractAddress,
+      abiFunctionSignature: abiFunctionSignature,
+      abiParameters: abiParameters,
+      refId: refId,
+      fee: {
+        type: 'level',
+        config: {
+          feeLevel: 'MEDIUM'
+        }
+      }
+    });
+
+    console.log('✅ MakerBatchDeliver transaction created successfully!');
+    console.log('Transaction ID:', result.data?.id);
+    console.log('Transaction State:', result.data?.state);
+
+    res.json(result.data);
+
+  } catch (err: any) {
+    console.error('❌ Circle SDK MakerBatchDeliver Error:', err);
+    
+    let errorMessage = 'MakerBatchDeliver transaction failed';
+    if (err.response) {
+      console.error('Server response:', err.response.data);
+      errorMessage = err.response.data?.message || err.response.data?.error || errorMessage;
+    } else if (err.message) {
+      errorMessage = err.message;
+    }
+
+    res.status(500).json({
+      error: errorMessage,
+      details: err.response?.data || err.message,
+      method: 'circle.makerBatchDeliver'
+    });
+  }
+});
+
+// POST /api/web3/takerBatchDeliver - Execute takerBatchDeliver function using Web3js
+app.post('/api/web3/takerBatchDeliver', async (req, res) => {
+  try {
+    const {
+      privateKey,
+      contractAddress,
+      rpcUrl,
+      tradeIds,
+      permit,
+      signature,
+      gasLimit,
+      gasPrice
+    } = req.body;
+
+    // Validate required fields
+    if (!privateKey) {
+      return res.status(400).json({
+        error: 'privateKey is required for Web3js transaction'
+      });
+    }
+
+    if (!contractAddress) {
+      return res.status(400).json({
+        error: 'contractAddress is required'
+      });
+    }
+
+    // Validate trade data
+    if (!tradeIds || !Array.isArray(tradeIds) || tradeIds.length === 0) {
+      return res.status(400).json({
+        error: 'tradeIds array is required and must not be empty'
+      });
+    }
+
+    // Validate each trade ID
+    const tradeIdNumbers = tradeIds.map((id, index) => {
+      const tradeIdNumber = parseInt(id);
+      if (isNaN(tradeIdNumber) || tradeIdNumber < 0) {
+        throw new Error(`tradeIds[${index}] must be a valid non-negative integer`);
+      }
+      return tradeIdNumber;
+    });
+
+    // Validate batch permit structure
+    if (!permit || !permit.permitted || !permit.nonce || !permit.deadline) {
+      return res.status(400).json({
+        error: 'permit must include permitted, nonce, and deadline fields'
+      });
+    }
+
+    if (!Array.isArray(permit.permitted) || permit.permitted.length === 0) {
+      return res.status(400).json({
+        error: 'permit.permitted must be an array of TokenPermissions for batch operations'
+      });
+    }
+
+    // Validate each TokenPermissions in the batch
+    permit.permitted.forEach((tokenPermission: any, index: number) => {
+      if (!tokenPermission.token || !tokenPermission.amount) {
+        throw new Error(`permit.permitted[${index}] must include token and amount fields`);
+      }
+    });
+
+    if (!signature) {
+      return res.status(400).json({
+        error: 'signature is required'
+      });
+    }
+
+    console.log('=== Web3js TakerBatchDeliver Request ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Contract Address:', contractAddress);
+    console.log('Trade IDs:', tradeIdNumbers);
+    console.log('Permit:', JSON.stringify(permit, null, 2));
+    console.log('Signature:', signature);
+    console.log('======================================');
+
+    // Use provided RPC URL or default to Sepolia
+    const rpcEndpoint = rpcUrl || 'https://ethereum-sepolia-rpc.publicnode.com';
+    
+    // Initialize Web3
+    const web3 = new Web3(rpcEndpoint);
+    
+    // Add private key to wallet
+    const account = web3.eth.accounts.privateKeyToAccount(privateKey);
+    web3.eth.accounts.wallet.add(account);
+    
+    // Create contract instance
+    const contract = new web3.eth.Contract(FXESCROW_ABI, contractAddress);
+    
+    // Prepare function call data for batch permit
+    const permitStruct = [
+      permit.permitted.map((p: any) => [p.token, p.amount.toString()]), // TokenPermissions[]
+      permit.nonce.toString(),
+      permit.deadline.toString()
+    ];
+
+    console.log('=== Web3js Transaction Parameters ===');
+    console.log('From Address:', account.address);
+    console.log('Trade IDs:', tradeIdNumbers);
+    console.log('Permit Struct:', permitStruct);
+    console.log('Signature:', signature);
+    console.log('=====================================');
+
+    // Estimate gas if not provided
+    let estimatedGas = gasLimit;
+    if (!estimatedGas) {
+      try {
+        estimatedGas = await contract.methods.takerBatchDeliver(
+          tradeIdNumbers,
+          permitStruct,
+          signature
+        ).estimateGas({ from: account.address });
+        console.log('Estimated Gas:', estimatedGas);
+      } catch (gasError: any) {
+        console.error('Gas estimation failed:', gasError);
+        return res.status(400).json({
+          error: 'Failed to estimate gas for batch transaction',
+          details: gasError.message
+        });
+      }
+    }
+
+    // Get gas price if not provided
+    let txGasPrice = gasPrice;
+    if (!txGasPrice) {
+      txGasPrice = await web3.eth.getGasPrice();
+      console.log('Current Gas Price:', web3.utils.fromWei(txGasPrice, 'gwei'), 'gwei');
+    }
+
+    // Execute the transaction
+    const txData = contract.methods.takerBatchDeliver(
+      tradeIdNumbers,
+      permitStruct,
+      signature
+    );
+
+    const tx = {
+      from: account.address,
+      to: contractAddress,
+      data: txData.encodeABI(),
+      gas: estimatedGas,
+      gasPrice: txGasPrice
+    };
+
+    console.log('=== Sending Batch Transaction ===');
+    console.log('Transaction:', tx);
+
+    const signedTx = await web3.eth.accounts.signTransaction(tx, privateKey);
+    const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction!);
+
+    console.log('✅ Batch transaction successful!');
+    console.log('Transaction Hash:', receipt.transactionHash);
+    console.log('Block Number:', receipt.blockNumber);
+    console.log('Gas Used:', receipt.gasUsed);
+
+    res.json({
+      success: true,
+      transactionHash: receipt.transactionHash,
+      blockNumber: receipt.blockNumber,
+      gasUsed: receipt.gasUsed.toString(),
+      from: account.address,
+      to: contractAddress,
+      method: 'takerBatchDeliver',
+      parameters: {
+        tradeIds: tradeIdNumbers,
+        permit: permit,
+        signature: signature
+      },
+      receipt: receipt
+    });
+
+  } catch (err: any) {
+    console.error('❌ Web3js TakerBatchDeliver Error:', err);
+    
+    let errorMessage = 'Batch transaction failed';
+    if (err.message) {
+      errorMessage = err.message;
+    }
+    
+    // Handle common Web3 errors
+    if (err.message?.includes('insufficient funds')) {
+      errorMessage = 'Insufficient funds for gas fees';
+    } else if (err.message?.includes('execution reverted')) {
+      errorMessage = 'Batch transaction reverted - check contract conditions';
+    } else if (err.message?.includes('nonce too low')) {
+      errorMessage = 'Transaction nonce too low - transaction may have already been processed';
+    }
+
+    res.status(500).json({
+      error: errorMessage,
+      details: err.message,
+      method: 'web3.takerBatchDeliver'
+    });
+  }
+});
+
+// POST /api/web3/makerBatchDeliver - Execute makerBatchDeliver function using Web3js
+app.post('/api/web3/makerBatchDeliver', async (req, res) => {
+  try {
+    const {
+      privateKey,
+      contractAddress,
+      rpcUrl,
+      tradeIds,
+      permit,
+      signature,
+      gasLimit,
+      gasPrice
+    } = req.body;
+
+    // Validate required fields
+    if (!privateKey) {
+      return res.status(400).json({
+        error: 'privateKey is required for Web3js transaction'
+      });
+    }
+
+    if (!contractAddress) {
+      return res.status(400).json({
+        error: 'contractAddress is required'
+      });
+    }
+
+    // Validate trade data
+    if (!tradeIds || !Array.isArray(tradeIds) || tradeIds.length === 0) {
+      return res.status(400).json({
+        error: 'tradeIds array is required and must not be empty'
+      });
+    }
+
+    // Validate each trade ID
+    const tradeIdNumbers = tradeIds.map((id, index) => {
+      const tradeIdNumber = parseInt(id);
+      if (isNaN(tradeIdNumber) || tradeIdNumber < 0) {
+        throw new Error(`tradeIds[${index}] must be a valid non-negative integer`);
+      }
+      return tradeIdNumber;
+    });
+
+    // Validate batch permit structure
+    if (!permit || !permit.permitted || !permit.nonce || !permit.deadline) {
+      return res.status(400).json({
+        error: 'permit must include permitted, nonce, and deadline fields'
+      });
+    }
+
+    if (!Array.isArray(permit.permitted) || permit.permitted.length === 0) {
+      return res.status(400).json({
+        error: 'permit.permitted must be an array of TokenPermissions for batch operations'
+      });
+    }
+
+    // Validate each TokenPermissions in the batch
+    permit.permitted.forEach((tokenPermission: any, index: number) => {
+      if (!tokenPermission.token || !tokenPermission.amount) {
+        throw new Error(`permit.permitted[${index}] must include token and amount fields`);
+      }
+    });
+
+    if (!signature) {
+      return res.status(400).json({
+        error: 'signature is required'
+      });
+    }
+
+    console.log('=== Web3js MakerBatchDeliver Request ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Contract Address:', contractAddress);
+    console.log('Trade IDs:', tradeIdNumbers);
+    console.log('Permit:', JSON.stringify(permit, null, 2));
+    console.log('Signature:', signature);
+    console.log('======================================');
+
+    // Use provided RPC URL or default to Sepolia
+    const rpcEndpoint = rpcUrl || 'https://ethereum-sepolia-rpc.publicnode.com';
+    
+    // Initialize Web3
+    const web3 = new Web3(rpcEndpoint);
+    
+    // Add private key to wallet
+    const account = web3.eth.accounts.privateKeyToAccount(privateKey);
+    web3.eth.accounts.wallet.add(account);
+    
+    // Create contract instance
+    const contract = new web3.eth.Contract(FXESCROW_ABI, contractAddress);
+    
+    // Prepare function call data for batch permit
+    const permitStruct = [
+      permit.permitted.map((p: any) => [p.token, p.amount.toString()]), // TokenPermissions[]
+      permit.nonce.toString(),
+      permit.deadline.toString()
+    ];
+
+    console.log('=== Web3js Transaction Parameters ===');
+    console.log('From Address:', account.address);
+    console.log('Trade IDs:', tradeIdNumbers);
+    console.log('Permit Struct:', permitStruct);
+    console.log('Signature:', signature);
+    console.log('=====================================');
+
+    // Estimate gas if not provided
+    let estimatedGas = gasLimit;
+    if (!estimatedGas) {
+      try {
+        estimatedGas = await contract.methods.makerBatchDeliver(
+          tradeIdNumbers,
+          permitStruct,
+          signature
+        ).estimateGas({ from: account.address });
+        console.log('Estimated Gas:', estimatedGas);
+      } catch (gasError: any) {
+        console.error('Gas estimation failed:', gasError);
+        return res.status(400).json({
+          error: 'Failed to estimate gas for batch transaction',
+          details: gasError.message
+        });
+      }
+    }
+
+    // Get gas price if not provided
+    let txGasPrice = gasPrice;
+    if (!txGasPrice) {
+      txGasPrice = await web3.eth.getGasPrice();
+      console.log('Current Gas Price:', web3.utils.fromWei(txGasPrice, 'gwei'), 'gwei');
+    }
+
+    // Execute the transaction
+    const txData = contract.methods.makerBatchDeliver(
+      tradeIdNumbers,
+      permitStruct,
+      signature
+    );
+
+    const tx = {
+      from: account.address,
+      to: contractAddress,
+      data: txData.encodeABI(),
+      gas: estimatedGas,
+      gasPrice: txGasPrice
+    };
+
+    console.log('=== Sending Batch Transaction ===');
+    console.log('Transaction:', tx);
+
+    const signedTx = await web3.eth.accounts.signTransaction(tx, privateKey);
+    const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction!);
+
+    console.log('✅ Batch transaction successful!');
+    console.log('Transaction Hash:', receipt.transactionHash);
+    console.log('Block Number:', receipt.blockNumber);
+    console.log('Gas Used:', receipt.gasUsed);
+
+    res.json({
+      success: true,
+      transactionHash: receipt.transactionHash,
+      blockNumber: receipt.blockNumber,
+      gasUsed: receipt.gasUsed.toString(),
+      from: account.address,
+      to: contractAddress,
+      method: 'makerBatchDeliver',
+      parameters: {
+        tradeIds: tradeIdNumbers,
+        permit: permit,
+        signature: signature
+      },
+      receipt: receipt
+    });
+
+  } catch (err: any) {
+    console.error('❌ Web3js MakerBatchDeliver Error:', err);
+    
+    let errorMessage = 'Batch transaction failed';
+    if (err.message) {
+      errorMessage = err.message;
+    }
+    
+    // Handle common Web3 errors
+    if (err.message?.includes('insufficient funds')) {
+      errorMessage = 'Insufficient funds for gas fees';
+    } else if (err.message?.includes('execution reverted')) {
+      errorMessage = 'Batch transaction reverted - check contract conditions';
+    } else if (err.message?.includes('nonce too low')) {
+      errorMessage = 'Transaction nonce too low - transaction may have already been processed';
+    }
+
+    res.status(500).json({
+      error: errorMessage,
+      details: err.message,
+      method: 'web3.makerBatchDeliver'
     });
   }
 });
