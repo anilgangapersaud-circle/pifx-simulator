@@ -94,7 +94,7 @@ const GetTradesForm: React.FC<GetTradesFormProps> = ({ state, updateState, flowT
             <option value="maker_funded">Maker Funded</option>
             <option value="confirmed">Confirmed</option>
             <option value="pending_settlement">Pending Settlement</option>
-            <option value="settled">Settled</option>
+            <option value="complete">Complete</option>
           </select>
           <small className="form-hint">
             Filter by trade status

@@ -14,7 +14,8 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
     type: (flowType || 'taker') as 'taker' | 'maker',
     address: '',
     details: '',
-    signature: ''
+    signature: '',
+    fee: ''
   });
   // Use global state for registration responses instead of local state
   const [justAutoLoaded, setJustAutoLoaded] = useState(false);
@@ -61,9 +62,14 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
         console.log('📝 Using recipient address from typed data:', address);
       }
       
+      let fee = '';
       if (typedData && typedData.message) {
         // Extract details from typedData.message (this becomes the details object)
         details = JSON.stringify(typedData.message, null, 2);
+        // Extract fee if it exists
+        if (typedData.message.fee !== undefined) {
+          fee = typedData.message.fee.toString();
+        }
       }
       
       // Extract tradeId and type from the stored presign request data
@@ -77,7 +83,8 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
           details: details,
           address: address,
           tradeId: autoTradeId,
-          type: autoType
+          type: autoType,
+          fee: fee
         }));
         setJustAutoLoaded(true);
         console.log('✅ Auto-populated signature registration form');
@@ -197,6 +204,43 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
     }
   };
 
+  const handleFeeChange = (value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      fee: value
+    }));
+
+    // Update the details JSON to reflect the new fee
+    if (formData.details) {
+      try {
+        const parsedDetails = JSON.parse(formData.details);
+        if (value.trim() === '') {
+          delete parsedDetails.fee;
+        } else {
+          parsedDetails.fee = parseInt(value) || 0;
+        }
+        setFormData(prev => ({
+          ...prev,
+          details: JSON.stringify(parsedDetails, null, 2)
+        }));
+      } catch (error) {
+        // If details is not valid JSON, don't update it
+        console.warn('Could not update details JSON with new fee:', error);
+      }
+    }
+
+    // Clear auto-loaded flag when user manually changes data
+    setJustAutoLoaded(false);
+    
+    // Clear previous responses when user changes data
+    if (state.registrationResponse || state.registrationError) {
+      updateState({ 
+        registrationResponse: null, 
+        registrationError: null 
+      });
+    }
+  };
+
   const loadFromSigningResponse = () => {
     if (state.signingResponse && state.response) {
       // Extract signature
@@ -223,8 +267,13 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
         console.log('📝 Manual load: Using recipient address from typed data:', address);
       }
       
+      let fee = '';
       if (typedData && typedData.message) {
         details = JSON.stringify(typedData.message, null, 2);
+        // Extract fee if it exists
+        if (typedData.message.fee !== undefined) {
+          fee = typedData.message.fee.toString();
+        }
       }
       
       setFormData(prev => ({
@@ -233,7 +282,8 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
         details: details,
         address: address,
         tradeId: state.lastPresignTradeId || prev.tradeId,
-        type: state.lastPresignSelector || prev.type
+        type: state.lastPresignSelector || prev.type,
+        fee: fee
       }));
       
       // Clear previous responses
@@ -350,6 +400,26 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
               The recipient address from the typed data message
             </small>
           )}
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="fee">Fee (in smallest unit)</label>
+          <input
+            type="number"
+            id="fee"
+            value={formData.fee}
+            onChange={(e) => handleFeeChange(e.target.value)}
+            placeholder="e.g. 200000 (for 0.2 USDC with 6 decimals)"
+            min="0"
+            style={{
+              transition: 'border-color 0.3s ease, box-shadow 0.3s ease',
+              borderColor: justAutoLoaded ? '#38a169' : undefined,
+              boxShadow: justAutoLoaded ? '0 0 0 3px rgba(56, 161, 105, 0.1)' : undefined
+            }}
+          />
+          <small className="form-hint">
+            Fee amount in the smallest unit (e.g., for USDC with 6 decimals, 200000 = 0.2 USDC). This will automatically update the Details JSON below.
+          </small>
         </div>
 
         <div className="form-group">

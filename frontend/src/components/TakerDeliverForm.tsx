@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AppState } from '../App';
+import { AppState, getWalletIdForFlow } from '../App';
 import axios from 'axios';
 
 interface TakerDeliverFormProps {
@@ -11,12 +11,13 @@ interface TakerDeliverFormProps {
 const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState, flowType }) => {
   const [formData, setFormData] = useState({
     contractAddress: '0x1f91886C7028986aD885ffCee0e40b75C9cd5aC1', // FxEscrow proxy contract
-    walletId: state.walletId || '',
+    walletId: getWalletIdForFlow(state, flowType || 'taker'),
     refId: '',
     tradeIds: '', // Changed from tradeId to tradeIds to support multiple IDs
     // Permit data
-    permitToken: '', // permitted.token
-    permitAmount: '', // permitted.amount (will be converted to integer)
+    permitToken: '', // permitted.token (for single mode)
+    permitAmount: '', // permitted.amount (for single mode, will be converted to integer)
+    permitTokens: [{ token: '', amount: '' }], // for batch mode - array of token/amount pairs
     permitNonce: '', // nonce (will be converted to integer)
     permitDeadline: '', // deadline (will be converted to integer)
     signature: '',
@@ -27,26 +28,34 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showResponseDisplay, setShowResponseDisplay] = useState(true);
   const [signingMethod, setSigningMethod] = useState<'circle' | 'web3'>('circle');
   const [deliverType, setDeliverType] = useState<'taker' | 'maker'>(flowType || 'taker');
+  const [fundingMode, setFundingMode] = useState<'gross' | 'net'>('gross');
+  const [editableTypedData, setEditableTypedData] = useState<string>('');
+  const [typedDataError, setTypedDataError] = useState<string | null>(null);
   
-  // Permit2 approval state
-  const [permit2Loading, setPermit2Loading] = useState(false);
-  const [permit2Approved, setPermit2Approved] = useState<{[token: string]: boolean}>({});
-  const [permit2Response, setPermit2Response] = useState<any>(null);
-  const [permit2Error, setPermit2Error] = useState<string | null>(null);
+  // Removed permit2 approval state as we only get typed data now
 
-
-
-  // Auto-populate wallet ID when it changes
+  // Auto-switch to gross when taker is selected (net is only available for makers)
   React.useEffect(() => {
-    if (state.walletId !== formData.walletId) {
+    if (deliverType === 'taker' && fundingMode === 'net') {
+      setFundingMode('gross');
+    }
+  }, [deliverType, fundingMode]);
+
+
+
+  // Auto-populate wallet ID when it changes or flow type changes
+  React.useEffect(() => {
+    const appropriateWalletId = getWalletIdForFlow(state, flowType || deliverType);
+    if (appropriateWalletId !== formData.walletId) {
       setFormData(prev => ({
         ...prev,
-        walletId: state.walletId
+        walletId: appropriateWalletId
       }));
     }
-  }, [state.walletId, formData.walletId]);
+  }, [state.walletId, state.makerWalletId, state.takerWalletId, flowType, deliverType, formData.walletId]);
 
   // Update deliver type when flowType prop changes
   React.useEffect(() => {
@@ -61,6 +70,50 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       [field]: value
     }));
   };
+
+  // Helper functions for managing batch permit tokens
+  const addPermitToken = () => {
+    setFormData(prev => ({
+      ...prev,
+      permitTokens: [...prev.permitTokens, { token: '', amount: '' }]
+    }));
+  };
+
+  const removePermitToken = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      permitTokens: prev.permitTokens.filter((_, i) => i !== index)
+    }));
+  };
+
+  const updatePermitToken = (index: number, field: 'token' | 'amount', value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      permitTokens: prev.permitTokens.map((item, i) => 
+        i === index ? { ...item, [field]: value } : item
+      )
+    }));
+  };
+
+  // Initialize permitTokens array for batch mode (start with one token)
+  React.useEffect(() => {
+    const tradeIds = parseTradeIds(formData.tradeIds);
+    const batchMode = tradeIds.length > 1;
+    
+    if (batchMode && formData.permitTokens.length === 0) {
+      // Initialize with one token/amount pair for batch mode
+      setFormData(prev => ({
+        ...prev,
+        permitTokens: [{ token: '', amount: '' }]
+      }));
+    } else if (!batchMode && formData.permitTokens.length > 0) {
+      // Clear permitTokens array when switching back to single mode
+      setFormData(prev => ({
+        ...prev,
+        permitTokens: [{ token: '', amount: '' }]
+      }));
+    }
+  }, [formData.tradeIds]);
 
   // Helper function to parse trade IDs and determine if batch mode
   const parseTradeIds = (tradeIdsInput: string): number[] => {
@@ -84,258 +137,64 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
 
 
 
-  const generateAndSignPermit = async () => {
-    if (!formData.permitToken || !formData.permitAmount) {
-      setError('Please select a token and enter an amount to generate permit');
+  const signTypedData = async () => {
+    if (!editableTypedData) {
+      setError('No typed data available to sign. Get typed data first.');
       return;
     }
 
-    if (!formData.tradeIds.trim()) {
-      setError('Please enter at least one trade ID - it is required for the witness in the permit signature');
+    // Validate that the editable typed data is valid JSON
+    let parsedTypedData;
+    try {
+      parsedTypedData = JSON.parse(editableTypedData);
+    } catch (err) {
+      setTypedDataError('Invalid JSON format. Please check the typed data structure.');
       return;
     }
 
-    const tradeIds = parseTradeIds(formData.tradeIds);
-    if (tradeIds.length === 0) {
-      setError('Please enter valid trade IDs (comma-separated numbers)');
+    // Basic validation of typed data structure
+    if (!parsedTypedData.domain || !parsedTypedData.types || !parsedTypedData.message || !parsedTypedData.primaryType) {
+      setTypedDataError('Invalid typed data structure. Must include domain, types, message, and primaryType.');
       return;
     }
 
-    // Validation based on signing method
-    if (signingMethod === 'circle') {
-      if (!state.walletApiKey || !state.entitySecret || !formData.walletId) {
-        setError('Circle credentials (API Key, Entity Secret, Wallet ID) are required to sign with programmable wallet');
-        return;
-      }
-    } else {
-      if (!formData.privateKey) {
-        setError('Private key is required for web3js signing');
-        return;
-      }
+    if (!state.walletApiKey || !state.entitySecret || !formData.walletId) {
+      setError('Circle credentials (API Key, Entity Secret, Wallet ID) are required to sign with programmable wallet');
+      return;
     }
 
     setLoading(true);
     setError(null);
 
     try {
-      // Generate random nonce and future deadline
-      const randomNonce = Math.floor(Math.random() * 1000000);
-      const currentTimestamp = Math.floor(Date.now() / 1000);
-      const futureDeadline = 1759159650;
-
-      console.log('🔐 Generating Permit2 signature...');
-      console.log('Token:', formData.permitToken);
-      console.log('Amount:', formData.permitAmount);
-      console.log('Nonce:', randomNonce);
-      console.log('Deadline:', futureDeadline);
-
-      const domain = {
-            name: 'Permit2',
-            chainId: 11155111, // Sepolia
-            verifyingContract: '0x000000000022D473030F116dDEE9F6B43aC78BA3' 
+      
+      // Use Circle SDK to sign the (possibly edited) typed data
+      const signingPayload = {
+        walletApiKey: state.walletApiKey,
+        entitySecret: state.entitySecret,
+        walletId: formData.walletId,
+        typedData: parsedTypedData
       };
 
-      // Determine if we need batch or single permit
-      const batchMode = isBatchMode();
-      const singleTradeId = getSingleTradeId();
-
-      // EIP-712 types - different structures for single vs batch permits
-      let types: Record<string, Array<{name: string, type: string}>>;
-      let primaryType: string;
-      let permitStruct: any;
-      let witness: any;
-
-      if (batchMode) {
-        // Batch permit types
-        types = {
-          EIP712Domain: [
-            { name: 'name', type: 'string' },
-            { name: 'chainId', type: 'uint256' },
-            { name: 'verifyingContract', type: 'address' }
-          ],
-          PermitBatchWitnessTransferFrom: [
-            { name: 'permitted', type: 'TokenPermissions[]' },
-            { name: 'spender', type: 'address' },
-            { name: 'nonce', type: 'uint256' },
-            { name: 'deadline', type: 'uint256' },
-            { name: 'witness', type: 'BatchTradeWitness' }
-          ],
-          TokenPermissions: [
-            { name: 'token', type: 'address' },
-            { name: 'amount', type: 'uint256' }
-          ],
-          BatchTradeWitness: [
-            { name: 'ids', type: 'uint256[]' }
-          ]
-        };
-        primaryType = 'PermitBatchWitnessTransferFrom';
-        
-        // For batch, we need an array of TokenPermissions (one per trade)
-        const permitTokens = [{
-          token: formData.permitToken,
-          amount: parseInt(formData.permitAmount)
-        }];
-        
-        permitStruct = {
-          permitted: permitTokens,
-          spender: "0x1f91886C7028986aD885ffCee0e40b75C9cd5aC1",
-          nonce: randomNonce,
-          deadline: futureDeadline,
-          witness: {
-            ids: tradeIds
-          }
-        };
-      } else {
-        // Single permit types (existing)
-        types = {
-          EIP712Domain: [
-            { name: 'name', type: 'string' },
-            { name: 'chainId', type: 'uint256' },
-            { name: 'verifyingContract', type: 'address' }
-          ],
-          PermitWitnessTransferFrom: [
-            { name: 'permitted', type: 'TokenPermissions' },
-            { name: 'spender', type: 'address' },
-            { name: 'nonce', type: 'uint256' },
-            { name: 'deadline', type: 'uint256' },
-            { name: 'witness', type: 'SingleTradeWitness' }
-          ],
-          TokenPermissions: [
-            { name: 'token', type: 'address' },
-            { name: 'amount', type: 'uint256' }
-          ],
-          SingleTradeWitness: [
-            { name: 'id', type: 'uint256' }
-          ]
-        };
-        primaryType = 'PermitWitnessTransferFrom';
-        
-        permitStruct = {
-          permitted: {
-            token: formData.permitToken,
-            amount: parseInt(formData.permitAmount)
-          },
-          spender: "0x1f91886C7028986aD885ffCee0e40b75C9cd5aC1",
-          nonce: randomNonce,
-          deadline: futureDeadline,
-          witness: {
-            id: singleTradeId!
-          }
-        };
-      }
-
-      const message = permitStruct;
-
-      // Debug logging
-      console.log('🔍 Message structure:', JSON.stringify(message, null, 2));
-      console.log('🔍 Domain:', JSON.stringify(domain, null, 2));
-      console.log('🔍 Types:', JSON.stringify(types, null, 2));
-
-      const typedData = {
-        domain,
-        types,
-        primaryType: primaryType,
-        message
-      };
-
-      console.log('📝 Signing typed data:', JSON.stringify(typedData, null, 2));
+      const result = await axios.post('http://localhost:3001/api/wallet/sign/typedData', signingPayload);
       
-      // Validate that all types in the types object are actually used
-      const usedTypes = new Set([primaryType]); // Start with primary type
-      const findReferencedTypes = (typeName: string): void => {
-        if (types[typeName]) {
-          types[typeName].forEach((field: any) => {
-            if (field.type && types[field.type] && !usedTypes.has(field.type)) {
-              usedTypes.add(field.type);
-              findReferencedTypes(field.type);
-            }
-          });
-        }
-      };
-      
-      findReferencedTypes(primaryType);
-      console.log('🔍 Used types:', Array.from(usedTypes));
-      console.log('🔍 Defined types:', Object.keys(types));
-      
-      // Check for unused types
-      const unusedTypes = Object.keys(types).filter(t => !usedTypes.has(t));
-      if (unusedTypes.length > 0) {
-        console.warn('⚠️ Unused types detected:', unusedTypes);
-      }
-
-      let result;
-      let signerInfo = '';
-
-      if (signingMethod === 'circle') {
-        // Use Circle SDK to sign with the configured programmable wallet
-        const signingPayload = {
-          walletApiKey: state.walletApiKey,
-          entitySecret: state.entitySecret,
-          walletId: formData.walletId,
-          typedData
-        };
-
-        result = await axios.post('http://localhost:3001/api/wallet/sign/typedData', signingPayload);
-        signerInfo = `Circle SDK wallet ${formData.walletId}`;
-      } else {
-        // Use web3js to sign with the provided private key
-        const signingPayload = {
-          typedData,
-          generateWallet: false,
-          privateKey: formData.privateKey
-        };
-
-        result = await axios.post('http://localhost:3001/api/wallet/generateAndSign', signingPayload);
-        signerInfo = `Web3js wallet from private key`;
-      }
-
-      // Handle different response structures for Circle SDK vs Web3js
-      const responseData = signingMethod === 'circle' ? result.data : result.data.data;
-      
-      if (responseData && responseData.signature) {
-        const signature = responseData.signature;
+      if (result.data && result.data.signature) {
+        const signature = result.data.signature;
         
-        console.log('✅ Permit signature generated successfully!');
-        console.log('Signature:', signature);
-        console.log('Signed with:', signerInfo);
-
-        // Update form with generated values
+        // Update form with signature
         setFormData(prev => ({
           ...prev,
-          permitNonce: randomNonce.toString(),
-          permitDeadline: futureDeadline.toString(),
           signature: signature
         }));
 
-        // Show success message
-        setResponse({
-          success: true,
-          message: `Permit signature generated successfully with ${signingMethod === 'circle' ? 'Circle SDK' : 'Web3js'}!`,
-          details: {
-            signingMethod: signingMethod,
-            signerInfo: signerInfo,
-            signerWalletId: signingMethod === 'circle' ? formData.walletId : undefined,
-            signerAddress: signingMethod === 'web3' ? responseData.wallet?.address : undefined,
-            actualSigningWallet: signingMethod === 'web3' ? responseData.wallet : undefined,
-            signature: signature,
-            permitData: message,
-            typedData: typedData
-          }
-        });
-
-        console.log(`🎉 Form updated with ${signingMethod} permit signature`);
+        // Hide the response display after successful signing
+        setShowResponseDisplay(false);
       } else {
-        const errorMessage = signingMethod === 'circle' 
-          ? (result.data?.error || 'Failed to generate permit signature')
-          : (result.data?.error || result.data?.data?.error || 'Failed to generate permit signature');
-        throw new Error(errorMessage);
+        throw new Error(result.data?.error || 'Failed to sign typed data');
       }
     } catch (err: any) {
-
-      
-      let errorMessage = 'Failed to generate permit signature';
+      let errorMessage = 'Failed to sign typed data';
       if (err.response) {
-        console.error('❌ Server response:', err.response.data);
         errorMessage = err.response.data?.error || err.response.data?.message || `HTTP ${err.response.status}`;
       } else if (err.request) {
         errorMessage = 'No response from server. Please check your connection and ensure the backend is running.';
@@ -348,94 +207,133 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
     }
   };
 
-  const approvePermit2 = async () => {
-    if (!formData.permitToken) {
-      setPermit2Error('Please select a token to approve');
+  const getFundingTypedData = async () => {
+    if (!formData.tradeIds.trim()) {
+      setError('Please enter at least one trade ID');
       return;
     }
 
-    // Validation based on signing method
-    if (signingMethod === 'circle') {
-      if (!state.walletApiKey || !state.entitySecret || !formData.walletId) {
-        setPermit2Error('Circle credentials (API Key, Entity Secret, Wallet ID) are required for programmable wallet approval');
-        return;
-      }
-    } else {
-      if (!formData.privateKey) {
-        setPermit2Error('Private key is required for ethers wallet approval');
-        return;
-      }
+    const tradeIds = parseTradeIds(formData.tradeIds);
+    if (tradeIds.length === 0) {
+      setError('Please enter valid trade IDs (comma-separated numbers)');
+      return;
     }
 
-    setPermit2Loading(true);
-    setPermit2Error(null);
-    setPermit2Response(null);
+    // Validate API key for Circle presign endpoint
+    if (!state.apiKey) {
+      setError('API Key is required to get typed data from Circle API');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setShowResponseDisplay(true); // Show response display for typed data retrieval
 
     try {
-      console.log(`🔓 Approving Permit2 for token using ${signingMethod === 'circle' ? 'Circle SDK' : 'ethers wallet'}:`, formData.permitToken);
+      
+      // Call Circle API to get typed data
+      const presignPayload = {
+        environment: state.environment,
+        apiKey: state.apiKey,
+        contractTradeIds: tradeIds,
+        traderType: deliverType,
+        fundingMode: fundingMode
+      };
 
-      let payload: any;
-      let endpoint: string;
-
-      if (signingMethod === 'circle') {
-        // Circle SDK approval
-        payload = {
-          walletApiKey: state.walletApiKey,
-          entitySecret: state.entitySecret,
-          walletId: formData.walletId,
-          tokenAddress: formData.permitToken,
-          refId: formData.refId || undefined
-        };
-        endpoint = 'http://localhost:3001/api/approvePermit2';
-      } else {
-        // Ethers wallet approval
-        payload = {
-          privateKey: formData.privateKey,
-          tokenAddress: formData.permitToken,
-          rpcUrl: undefined, // Will use default Sepolia RPC
-          gasLimit: undefined, // Will estimate gas
-          gasPrice: undefined // Will use current gas price
-        };
-        endpoint = 'http://localhost:3001/api/web3/approvePermit2';
+      
+      const presignResult = await axios.post('http://localhost:3001/api/signatures/funding/presign', presignPayload);
+      
+      // Handle nested response structure: data.data.typedData
+      const responseData = presignResult.data?.data || presignResult.data;
+      if (!responseData || !responseData.typedData) {
+        throw new Error('Invalid response from Circle presign API - missing typedData');
       }
 
-      console.log(`Permit2 Approval Request (${signingMethod}):`, payload);
+      const { typedData } = responseData;
+      const permitData = responseData.permitData || typedData.message;
 
-      const result = await axios.post(endpoint, payload);
+      // Extract nonce and deadline from typed data message
+      const nonce = typedData?.message?.nonce;
+      const deadline = typedData?.message?.deadline;
 
-      console.log('✅ Permit2 approval successful!', result.data);
+      if (!nonce || !deadline) {
+        console.warn('⚠️ Could not extract nonce or deadline from typed data');
+      }
 
-      // Update approval state
-      setPermit2Approved(prev => ({
+      // Extract permit data from typed data message
+      const permitMessage = typedData?.message;
+      let extractedPermitTokens: { token: string; amount: string }[] = [];
+      
+      if (permitMessage?.permitted) {
+        if (Array.isArray(permitMessage.permitted)) {
+          // Batch mode - array of token permissions
+          extractedPermitTokens = permitMessage.permitted.map((p: any) => ({
+            token: p.token || '',
+            amount: p.amount?.toString() || ''
+          }));
+        } else {
+          // Single mode - single token permission
+          extractedPermitTokens = [{
+            token: permitMessage.permitted.token || '',
+            amount: permitMessage.permitted.amount?.toString() || ''
+          }];
+        }
+      }
+
+
+      // Update form with values from Circle API
+      setFormData(prev => ({
         ...prev,
-        [formData.permitToken]: true
+        permitNonce: nonce ? nonce.toString() : '',
+        permitDeadline: deadline ? deadline.toString() : '',
+        permitTokens: extractedPermitTokens.length > 0 ? extractedPermitTokens : prev.permitTokens,
+        permitToken: extractedPermitTokens.length > 0 ? extractedPermitTokens[0].token : prev.permitToken,
+        permitAmount: extractedPermitTokens.length > 0 ? extractedPermitTokens[0].amount : prev.permitAmount,
+        signature: '' // Clear any existing signature
       }));
 
-      setPermit2Response(result.data);
+      // Set the editable typed data
+      setEditableTypedData(JSON.stringify(typedData, null, 2));
+      setTypedDataError(null);
 
-      // Show success message
-      console.log(`🎉 Token approved for Permit2 transfers using ${signingMethod === 'circle' ? 'Circle SDK' : 'ethers wallet'}`);
+      // Show success message with typed data
+      setResponse({
+        success: true,
+        message: 'Funding typed data retrieved successfully from Circle API!',
+        details: {
+          permitData: permitData,
+          typedData: typedData,
+          fundingMode: fundingMode,
+          traderType: deliverType,
+          contractTradeIds: tradeIds,
+          nonce: nonce,
+          deadline: deadline,
+          readyForSigning: true
+        }
+      });
 
     } catch (err: any) {
-      let errorMessage = `Failed to approve Permit2 using ${signingMethod === 'circle' ? 'Circle SDK' : 'ethers wallet'}`;
+      let errorMessage = 'Failed to get funding typed data';
       if (err.response) {
-        console.error('❌ Server response:', err.response.data);
         errorMessage = err.response.data?.error || err.response.data?.message || `HTTP ${err.response.status}`;
       } else if (err.request) {
         errorMessage = 'No response from server. Please check your connection and ensure the backend is running.';
       } else {
         errorMessage = err.message || 'Unknown error occurred';
       }
-      setPermit2Error(errorMessage);
+      setError(errorMessage);
     } finally {
-      setPermit2Loading(false);
+      setLoading(false);
     }
   };
+
+  // Removed approvePermit2 function as we only get typed data and sign it now
 
 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
     
     if (!formData.tradeIds.trim()) {
       setError('At least one Trade ID is required');
@@ -449,20 +347,24 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
     }
 
     // Both taker and maker deliver require all permit fields and signature
-    // Check if Permit2 is approved for the token
-    if (formData.permitToken && !permit2Approved[formData.permitToken]) {
-      setError(`Please approve Permit2 contract for this token before executing ${deliverType} deliver`);
-      return;
-    }
-
-    if (!formData.permitToken || !formData.permitAmount || !formData.permitNonce || !formData.permitDeadline || !formData.signature) {
-      setError(`All permit fields and signature are required for ${deliverType === 'taker' ? 'Taker' : 'Maker'} Deliver`);
+    const batchMode = isBatchMode();
+    
+    // Validate net delivery requires multiple trades (only for makers)
+    if (fundingMode === 'net' && deliverType === 'maker' && tradeIds.length === 1) {
+      setError('Net funding requires multiple trade IDs to calculate net balances across trades');
       return;
     }
     
-    // Validate that numeric fields can be converted to integers
-    if (isNaN(parseInt(formData.permitAmount)) || isNaN(parseInt(formData.permitNonce)) || isNaN(parseInt(formData.permitDeadline))) {
-      setError('Permit amount, nonce, and deadline must be valid numbers');
+    // Basic validation - only check essential fields, permit data will be extracted from typed data
+    if (!formData.permitNonce || !formData.permitDeadline || !formData.signature) {
+      setError(`Nonce, deadline and signature are required for ${deliverType === 'taker' ? 'Taker' : 'Maker'} Deliver`);
+      return;
+    }
+    
+    
+    // Validate that nonce and deadline can be converted to integers
+    if (isNaN(parseInt(formData.permitNonce)) || isNaN(parseInt(formData.permitDeadline))) {
+      setError('Nonce and deadline must be valid numbers');
       return;
     }
 
@@ -489,16 +391,22 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       const batchMode = isBatchMode();
       const singleTradeId = getSingleTradeId();
 
+      // Extract permit data from the typed data that was signed
+      let typedDataObj = null;
+      try {
+        typedDataObj = JSON.parse(editableTypedData);
+      } catch (err) {
+        setError('Invalid typed data format. Please get fresh typed data.');
+        return;
+      }
+
+      const permitDataFromTypedData = typedDataObj?.message;
+
       if (signingMethod === 'circle') {
         // Circle SDK implementation
         if (deliverType === 'taker') {
           if (batchMode) {
-            // Batch taker deliver
-            const permitTokens = [{
-              token: formData.permitToken,
-              amount: parseInt(formData.permitAmount)
-            }];
-            
+            // Batch taker deliver - use permit data directly from typed data
             payload = {
               walletApiKey: state.walletApiKey,
               entitySecret: state.entitySecret,
@@ -507,15 +415,15 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
               refId: formData.refId || undefined,
               tradeIds: tradeIds,
               permit: {
-                permitted: permitTokens,
-                nonce: parseInt(formData.permitNonce),
-                deadline: parseInt(formData.permitDeadline)
+                permitted: permitDataFromTypedData.permitted,
+                nonce: permitDataFromTypedData.nonce,
+                deadline: permitDataFromTypedData.deadline
               },
               signature: formData.signature
             };
             endpoint = 'http://localhost:3001/api/takerBatchDeliver';
           } else {
-            // Single taker deliver
+            // Single taker deliver - use permit data directly from typed data
             payload = {
               walletApiKey: state.walletApiKey,
               entitySecret: state.entitySecret,
@@ -524,25 +432,18 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
               refId: formData.refId || undefined,
               tradeId: singleTradeId,
               permit: {
-                permitted: {
-                  token: formData.permitToken,
-                  amount: parseInt(formData.permitAmount)
-                },
-                nonce: parseInt(formData.permitNonce),
-                deadline: parseInt(formData.permitDeadline)
+                permitted: permitDataFromTypedData.permitted,
+                nonce: permitDataFromTypedData.nonce,
+                deadline: permitDataFromTypedData.deadline
               },
               signature: formData.signature
             };
             endpoint = 'http://localhost:3001/api/takerDeliver';
           }
         } else {
-          if (batchMode) {
-            // Batch maker deliver
-            const permitTokens = [{
-              token: formData.permitToken,
-              amount: parseInt(formData.permitAmount)
-            }];
-            
+          // Maker deliver logic
+          if (fundingMode === 'net') {
+            // Net delivery always uses batch format (multiple trade IDs) - use permit data directly from typed data
             payload = {
               walletApiKey: state.walletApiKey,
               entitySecret: state.entitySecret,
@@ -551,15 +452,32 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
               refId: formData.refId || undefined,
               tradeIds: tradeIds,
               permit: {
-                permitted: permitTokens,
-                nonce: parseInt(formData.permitNonce),
-                deadline: parseInt(formData.permitDeadline)
+                permitted: permitDataFromTypedData.permitted,
+                nonce: permitDataFromTypedData.nonce,
+                deadline: permitDataFromTypedData.deadline
+              },
+              signature: formData.signature
+            };
+            endpoint = 'http://localhost:3001/api/makerNetDeliver';
+          } else if (batchMode) {
+            // Batch maker deliver (gross) - use permit data directly from typed data
+            payload = {
+              walletApiKey: state.walletApiKey,
+              entitySecret: state.entitySecret,
+              contractAddress: formData.contractAddress,
+              walletId: formData.walletId,
+              refId: formData.refId || undefined,
+              tradeIds: tradeIds,
+              permit: {
+                permitted: permitDataFromTypedData.permitted,
+                nonce: permitDataFromTypedData.nonce,
+                deadline: permitDataFromTypedData.deadline
               },
               signature: formData.signature
             };
             endpoint = 'http://localhost:3001/api/makerBatchDeliver';
           } else {
-            // Single maker deliver
+            // Single maker deliver (gross) - use permit data directly from typed data
             payload = {
               walletApiKey: state.walletApiKey,
               entitySecret: state.entitySecret,
@@ -568,12 +486,9 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
               refId: formData.refId || undefined,
               tradeId: singleTradeId,
               permit: {
-                permitted: {
-                  token: formData.permitToken,
-                  amount: parseInt(formData.permitAmount)
-                },
-                nonce: parseInt(formData.permitNonce),
-                deadline: parseInt(formData.permitDeadline)
+                permitted: permitDataFromTypedData.permitted,
+                nonce: permitDataFromTypedData.nonce,
+                deadline: permitDataFromTypedData.deadline
               },
               signature: formData.signature
             };
@@ -581,17 +496,11 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
           }
         }
 
-        console.log(`Circle SDK ${deliverType}${batchMode ? 'Batch' : ''}Deliver Function Request:`, payload);
       } else {
         // Web3js/Ethers implementation
         if (deliverType === 'taker') {
           if (batchMode) {
-            // Batch taker deliver
-            const permitTokens = tradeIds.map(() => ({
-              token: formData.permitToken,
-              amount: parseInt(formData.permitAmount)
-            }));
-            
+            // Batch taker deliver - use permit data directly from typed data
             payload = {
               privateKey: formData.privateKey,
               contractAddress: formData.contractAddress,
@@ -600,9 +509,9 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
               gasPrice: undefined,
               tradeIds: tradeIds,
               permit: {
-                permitted: permitTokens,
-                nonce: parseInt(formData.permitNonce),
-                deadline: parseInt(formData.permitDeadline)
+                permitted: permitDataFromTypedData.permitted,
+                nonce: permitDataFromTypedData.nonce,
+                deadline: permitDataFromTypedData.deadline
               },
               signature: formData.signature
             };
@@ -617,25 +526,18 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
               gasPrice: undefined,
               tradeId: singleTradeId,
               permit: {
-                permitted: {
-                  token: formData.permitToken,
-                  amount: parseInt(formData.permitAmount)
-                },
-                nonce: parseInt(formData.permitNonce),
-                deadline: parseInt(formData.permitDeadline)
+                permitted: permitDataFromTypedData.permitted,
+                nonce: permitDataFromTypedData.nonce,
+                deadline: permitDataFromTypedData.deadline
               },
               signature: formData.signature
             };
             endpoint = 'http://localhost:3001/api/web3/takerDeliver';
           }
         } else {
-          if (batchMode) {
-            // Batch maker deliver
-            const permitTokens = tradeIds.map(() => ({
-              token: formData.permitToken,
-              amount: parseInt(formData.permitAmount)
-            }));
-            
+          // Maker deliver logic
+          if (fundingMode === 'net') {
+            // Net delivery always uses batch format (multiple trade IDs) - use permit data directly from typed data
             payload = {
               privateKey: formData.privateKey,
               contractAddress: formData.contractAddress,
@@ -644,15 +546,32 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
               gasPrice: undefined,
               tradeIds: tradeIds,
               permit: {
-                permitted: permitTokens,
-                nonce: parseInt(formData.permitNonce),
-                deadline: parseInt(formData.permitDeadline)
+                permitted: permitDataFromTypedData.permitted,
+                nonce: permitDataFromTypedData.nonce,
+                deadline: permitDataFromTypedData.deadline
+              },
+              signature: formData.signature
+            };
+            endpoint = 'http://localhost:3001/api/web3/makerNetDeliver';
+          } else if (batchMode) {
+            // Batch maker deliver (gross) - use permit data directly from typed data
+            payload = {
+              privateKey: formData.privateKey,
+              contractAddress: formData.contractAddress,
+              rpcUrl: undefined,
+              gasLimit: undefined,
+              gasPrice: undefined,
+              tradeIds: tradeIds,
+              permit: {
+                permitted: permitDataFromTypedData.permitted,
+                nonce: permitDataFromTypedData.nonce,
+                deadline: permitDataFromTypedData.deadline
               },
               signature: formData.signature
             };
             endpoint = 'http://localhost:3001/api/web3/makerBatchDeliver';
           } else {
-            // Single maker deliver
+            // Single maker deliver (gross)
             payload = {
               privateKey: formData.privateKey,
               contractAddress: formData.contractAddress,
@@ -661,12 +580,9 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
               gasPrice: undefined,
               tradeId: singleTradeId,
               permit: {
-                permitted: {
-                  token: formData.permitToken,
-                  amount: parseInt(formData.permitAmount)
-                },
-                nonce: parseInt(formData.permitNonce),
-                deadline: parseInt(formData.permitDeadline)
+                permitted: permitDataFromTypedData.permitted,
+                nonce: permitDataFromTypedData.nonce,
+                deadline: permitDataFromTypedData.deadline
               },
               signature: formData.signature
             };
@@ -674,13 +590,12 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
           }
         }
 
-        console.log(`Web3js ${deliverType}${batchMode ? 'Batch' : ''}Deliver Function Request:`, payload);
       }
 
       const result = await axios.post(endpoint, payload);
-
+      
       setResponse(result.data);
-      console.log(`${deliverType}Deliver Function Response:`, result.data);
+      setShowResponseDisplay(true);
 
     } catch (err: any) {
       let errorMessage = 'An unknown error occurred';
@@ -700,7 +615,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       }
 
       setError(errorMessage);
-      console.error('TakerDeliver Function Error:', err);
+      setShowResponseDisplay(true);
     } finally {
       setLoading(false);
     }
@@ -710,8 +625,8 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
 
   return (
     <div className="form-container" style={{ maxWidth: 'none', width: '100%', padding: '2rem 3rem' }}>
-      <h2>{deliverType === 'taker' ? 'Taker Deliver' : 'Maker Deliver'}</h2>
-      <p>Execute {deliverType}Deliver or {deliverType}BatchDeliver functions on FxEscrow contract with permit signatures. Single trade ID uses individual functions, multiple trade IDs use batch functions.</p>
+      <h2>{deliverType === 'taker' ? 'Taker' : 'Maker'} Funding Typed Data & Signing</h2>
+      <p>Get EIP-712 typed data for Permit2 funding from Circle's API and sign it with Circle SDK. This generates the signature needed for {deliverType} funding operations.</p>
       
       {/* Deliver Type Toggle - Only show when not in workflow mode */}
       {!flowType && (
@@ -733,7 +648,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                   fontSize: '0.9rem'
                 }}
               >
-                📦 Taker Deliver
+                📦 Taker
               </button>
               <button
                 type="button"
@@ -749,7 +664,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                   fontSize: '0.9rem'
                 }}
               >
-                🏭 Maker Deliver
+                🏭 Maker
               </button>
             </div>
           </div>
@@ -757,57 +672,22 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
           <p style={{ margin: 0, fontSize: '0.95rem', color: '#718096' }}>
             {deliverType === 'taker' 
               ? 'Execute takerDeliver (single) or takerBatchDeliver (multiple) - Requires Permit2 signature(s) for token transfer from taker to contract.'
-              : 'Execute makerDeliver (single) or makerBatchDeliver (multiple) - Requires Permit2 signature(s) for token transfer from maker to contract.'
+              : 'Execute makerDeliver/makerBatchDeliver (gross) or makerNetDeliver (net) - Requires Permit2 signature(s) for token transfer from maker to contract.'
             }
           </p>
         </div>
       )}
 
-      {/* Signing Method Toggle */}
-      <div style={{ marginBottom: '1.5rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.75rem' }}>
-          <span style={{ fontWeight: 'bold', color: '#2d3748' }}>Signing Method:</span>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button
-              type="button"
-              onClick={() => setSigningMethod('circle')}
-              style={{
-                padding: '0.5rem 1rem',
-                border: `2px solid ${signingMethod === 'circle' ? '#667eea' : '#e2e8f0'}`,
-                backgroundColor: signingMethod === 'circle' ? '#667eea' : 'white',
-                color: signingMethod === 'circle' ? 'white' : '#4a5568',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontWeight: '500',
-                fontSize: '0.9rem'
-              }}
-            >
-              🔵 Circle SDK
-            </button>
-            <button
-              type="button"
-              onClick={() => setSigningMethod('web3')}
-              style={{
-                padding: '0.5rem 1rem',
-                border: `2px solid ${signingMethod === 'web3' ? '#38a169' : '#e2e8f0'}`,
-                backgroundColor: signingMethod === 'web3' ? '#38a169' : 'white',
-                color: signingMethod === 'web3' ? 'white' : '#4a5568',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontWeight: '500',
-                fontSize: '0.9rem'
-              }}
-            >
-              🧪 Web3.js + Ethers
-            </button>
-          </div>
+
+
+      {/* Info about typed data retrieval */}
+      <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f0f8ff', border: '1px solid #667eea', borderRadius: '6px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+          <span style={{ fontSize: '1.2rem' }}>📋</span>
+          <span style={{ fontWeight: 'bold', color: '#667eea' }}>Typed Data Retrieval</span>
         </div>
-        
-        <p style={{ margin: 0, fontSize: '0.95rem', color: '#718096' }}>
-          {signingMethod === 'circle' 
-            ? 'Sign EIP-712 permit data using Circle\'s Programmable Wallets SDK with your managed wallet.'
-            : 'Sign EIP-712 permit data using Web3.js + Ethers.js with your private key.'
-          }
+        <p style={{ margin: 0, fontSize: '0.9rem', color: '#4a5568' }}>
+          This form retrieves EIP-712 typed data for Permit2 funding from Circle's API. The typed data can then be used for signing in external applications.
         </p>
       </div>
       
@@ -816,63 +696,6 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
 
 
       <form onSubmit={handleSubmit} className="api-form" style={{ width: '100%' }}>
-        {/* Contract Configuration */}
-        <fieldset style={{ border: '1px solid #e2e8f0', borderRadius: '6px', padding: '2rem', marginBottom: '2rem' }}>
-          <legend style={{ fontWeight: 'bold', color: '#2d3748', fontSize: '1.1rem' }}>Contract Configuration</legend>
-          
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginBottom: '2rem' }}>
-            {signingMethod === 'circle' ? (
-              <div className="form-group">
-                <label htmlFor="walletId">Wallet ID *</label>
-                <input
-                  type="text"
-                  id="walletId"
-                  value={formData.walletId}
-                  onChange={(e) => handleInputChange('walletId', e.target.value)}
-                  placeholder="Enter wallet ID (or set in Settings)"
-                  required
-                  style={{ width: '100%', padding: '0.75rem', fontSize: '0.95rem' }}
-                />
-                {state.walletId && formData.walletId === state.walletId && (
-                  <small style={{ color: '#38a169' }}>
-                    ✓ Auto-populated from settings
-                  </small>
-                )}
-              </div>
-            ) : (
-              <div className="form-group">
-                <label htmlFor="privateKey">Private Key *</label>
-                <input
-                  type="password"
-                  id="privateKey"
-                  value={formData.privateKey}
-                  onChange={(e) => handleInputChange('privateKey', e.target.value)}
-                  placeholder="0x... (64-character private key)"
-                  required
-                  style={{ width: '100%', padding: '0.75rem', fontSize: '0.95rem' }}
-                />
-                <small style={{ color: '#718096', fontSize: '0.85rem' }}>
-                  Your private key for signing the permit. This is used directly for signing and never stored.
-                </small>
-              </div>
-            )}
-
-            <div className="form-group">
-              <label htmlFor="refId">Reference ID</label>
-              <input
-                type="text"
-                id="refId"
-                value={formData.refId}
-                onChange={(e) => handleInputChange('refId', e.target.value)}
-                placeholder="Optional tracking ID"
-                style={{ width: '100%', padding: '0.75rem', fontSize: '0.95rem' }}
-              />
-              <small style={{ color: '#718096', fontSize: '0.85rem' }}>
-                Optional ID for tracking this transaction
-              </small>
-            </div>
-          </div>
-        </fieldset>
 
         {/* Trade IDs */}
         <fieldset style={{ border: '1px solid #e2e8f0', borderRadius: '6px', padding: '2rem', marginBottom: '2rem' }}>
@@ -892,6 +715,77 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
             <small style={{ color: '#718096', fontSize: '0.85rem' }}>
               Enter one or more trade IDs separated by commas. Single ID uses individual deliver functions, multiple IDs use batch deliver functions.
             </small>
+            
+            {/* Funding Mode Selection - Show for both taker and maker when not in workflow mode, or for makers in workflow mode */}
+            {(!flowType || (flowType === 'maker' && deliverType === 'maker')) && (
+              <div style={{ marginTop: '1.5rem' }}>
+                <label style={{ fontWeight: 'bold', color: '#2d3748', display: 'block', marginBottom: '0.75rem' }}>
+                  Funding Mode:
+                </label>
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="fundingMode"
+                      value="gross"
+                      checked={fundingMode === 'gross'}
+                      onChange={() => setFundingMode('gross')}
+                      style={{ margin: 0 }}
+                    />
+                    <span style={{ fontWeight: '500', color: '#2d3748' }}>Gross</span>
+                  </label>
+                  <label style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '0.5rem', 
+                    cursor: deliverType === 'taker' ? 'not-allowed' : 'pointer',
+                    opacity: deliverType === 'taker' ? 0.5 : 1
+                  }}>
+                    <input
+                      type="radio"
+                      name="fundingMode"
+                      value="net"
+                      checked={fundingMode === 'net'}
+                      onChange={() => setFundingMode('net')}
+                      disabled={deliverType === 'taker'}
+                      style={{ margin: 0 }}
+                    />
+                    <span style={{ fontWeight: '500', color: '#2d3748' }}>Net</span>
+                  </label>
+                </div>
+              </div>
+            )}
+            
+            {/* Get Typed Data Button - Small and inline */}
+            <div style={{ marginTop: '1rem', marginBottom: '1rem' }}>
+              <button 
+                type="button" 
+                onClick={getFundingTypedData}
+                style={{ 
+                  backgroundColor: response?.success ? '#38a169' : '#667eea', 
+                  color: 'white',
+                  border: 'none',
+                  padding: '0.5rem 1rem',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem',
+                  fontWeight: '500',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                }}
+                title="Get typed data for funding from Circle API"
+                disabled={loading || !formData.tradeIds || !state.apiKey}
+              >
+                {response?.success ? 'Retrieved' : (loading ? 'Getting...' : 'Get Typed Data')}
+              </button>
+              {(!formData.tradeIds || !state.apiKey) && (
+                <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#718096' }}>
+                  {!formData.tradeIds ? 
+                    'Enter trade IDs first' :
+                    'Configure API Key in Settings'
+                  }
+                </div>
+              )}
+            </div>
             
             {/* Show parsed trade IDs preview */}
             {formData.tradeIds && (
@@ -918,7 +812,8 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                         Trade IDs: {tradeIds.join(', ')}
                       </div>
                       <div style={{ color: '#667eea', fontSize: '0.85rem', marginTop: '0.25rem' }}>
-                        Will use: {deliverType}{batchMode ? 'BatchDeliver' : 'Deliver'}
+                        Will use: {fundingMode === 'net' && deliverType === 'maker' ? 'makerNetDeliver' : 
+                          `${deliverType}${batchMode ? 'BatchDeliver' : 'Deliver'}`}
                       </div>
                     </div>
                   );
@@ -928,365 +823,192 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
           </div>
         </fieldset>
 
-        {/* Permit2 Data */}
+
+        {/* Typed Data Display */}
         <fieldset style={{ border: '1px solid #e2e8f0', borderRadius: '6px', padding: '2rem', marginBottom: '2rem' }}>
           <legend style={{ fontWeight: 'bold', color: '#2d3748', fontSize: '1.1rem' }}>
-            Permit2 Transfer Data <span style={{ fontSize: '0.9rem', color: '#e53e3e' }}>(Required for Both Taker and Maker Deliver)</span>
+            Typed Data Response
           </legend>
 
 
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginBottom: '2rem' }}>
-                <div className="form-group">
-                    <label htmlFor="permitToken">Token *</label>
-                    <select
-                        id="permitToken"
-                        value={formData.permitToken}
-                        onChange={(e) => handleInputChange('permitToken', e.target.value)}
-                        required
-                        style={{ width: '100%', padding: '0.75rem', fontSize: '0.95rem', backgroundColor: 'white' }}
-                    >
-                        <option value="">Select a token...</option>
-                        <option value="0x1c7d4b196cb0c7b01d743fbc6116a902379c7238">USDC (USD Coin)</option>
-                        <option value="0x08210F9170F89Ab7658F0B5E3fF39b0E03C594D4">EURC (Euro Coin)</option>
-                    </select>
-                    <small style={{ color: '#718096', fontSize: '0.85rem' }}>
-                        Select the token to be transferred (Ethereum Sepolia testnet)
-                        {formData.permitToken && (
-                            <span style={{ color: '#667eea', marginLeft: '0.5rem' }}>
-                    <br />📍 {formData.permitToken}
-                  </span>
-                        )}
-                    </small>
-                </div>
-
-                <div className="form-group">
-                    <label htmlFor="permitAmount">Amount *</label>
-                    <input
-                        type="number"
-                        id="permitAmount"
-                        value={formData.permitAmount}
-                        onChange={(e) => handleInputChange('permitAmount', e.target.value)}
-                        placeholder={formData.permitToken ?
-                            (formData.permitToken === '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238' ? '1000000 (1 USDC)' :
-                                formData.permitToken === '0x08210F9170F89Ab7658F0B5E3fF39b0E03C594D4' ? '1000000 (1 EURC)' :
-                                    'Amount in smallest unit') : 'Amount in smallest unit'
-                        }
-                        required
-                        min="0"
-                        step="1"
-                        style={{ width: '100%', padding: '0.75rem', fontSize: '0.95rem' }}
-                    />
-                    <small style={{ color: '#718096', fontSize: '0.85rem' }}>
-                        Amount to transfer (both USDC and EURC use 6 decimals)
-                        {formData.permitToken && formData.permitAmount && (
-                            <span style={{ color: '#667eea', marginLeft: '0.5rem' }}>
-                    <br />💰 {(parseInt(formData.permitAmount) / 1000000).toFixed(6)} {
-                                formData.permitToken === '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238' ? 'USDC' :
-                                    formData.permitToken === '0x08210F9170F89Ab7658F0B5E3fF39b0E03C594D4' ? 'EURC' : 'tokens'
-                            }
-                  </span>
-                        )}
-                    </small>
-                    {formData.permitToken && (
-                        <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                            <button
-                                type="button"
-                                onClick={() => handleInputChange('permitAmount', '1000000')}
-                                style={{
-                                    padding: '0.25rem 0.5rem',
-                                    fontSize: '0.8rem',
-                                    backgroundColor: '#f7fafc',
-                                    border: '1px solid #e2e8f0',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                1 {formData.permitToken === '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238' ? 'USDC' : 'EURC'}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleInputChange('permitAmount', '10000000')}
-                                style={{
-                                    padding: '0.25rem 0.5rem',
-                                    fontSize: '0.8rem',
-                                    backgroundColor: '#f7fafc',
-                                    border: '1px solid #e2e8f0',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                10 {formData.permitToken === '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238' ? 'USDC' : 'EURC'}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleInputChange('permitAmount', '100000000')}
-                                style={{
-                                    padding: '0.25rem 0.5rem',
-                                    fontSize: '0.8rem',
-                                    backgroundColor: '#f7fafc',
-                                    border: '1px solid #e2e8f0',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                100 {formData.permitToken === '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238' ? 'USDC' : 'EURC'}
-                            </button>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-          {/* Permit2 Approval Section */}
-          {formData.permitToken && (
-            <div style={{ 
-              marginBottom: '2rem', 
-              padding: '1.5rem', 
-              backgroundColor: permit2Approved[formData.permitToken] ? '#f0fff4' : '#fffaf0', 
-              border: `2px solid ${permit2Approved[formData.permitToken] ? '#38a169' : '#ed8936'}`,
-              borderRadius: '8px'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', marginBottom: '1rem' }}>
-                <span style={{ fontSize: '1.5rem', marginRight: '0.5rem' }}>
-                  {permit2Approved[formData.permitToken] ? '✅' : '🔓'}
-                </span>
-                <h3 style={{ 
-                  margin: 0, 
-                  color: permit2Approved[formData.permitToken] ? '#38a169' : '#ed8936' 
-                }}>
-                  Step 1: Approve Permit2 Contract
-                </h3>
-              </div>
-              
-              <p style={{ 
-                margin: '0 0 1rem 0', 
-                fontSize: '0.95rem', 
-                color: '#4a5568' 
-              }}>
-                {permit2Approved[formData.permitToken] 
-                  ? '✅ This token is approved for Permit2 transfers. You can now generate and sign permits.'
-                  : 'Before you can use Permit2 signatures, you need to approve the Permit2 contract to spend your tokens. This is a one-time approval per token.'
-                }
-              </p>
-
-              {!permit2Approved[formData.permitToken] && (
-                <div style={{ textAlign: 'center' }}>
-                  <button 
-                    type="button" 
-                    onClick={approvePermit2}
-                    style={{
-                      padding: '0.75rem 1.5rem',
-                      fontSize: '1rem',
-                      fontWeight: 'bold',
-                      backgroundColor: '#ed8936',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      boxShadow: '0 2px 4px rgba(237, 137, 54, 0.3)'
-                    }}
-                    disabled={permit2Loading || 
-                      (signingMethod === 'circle' && (!state.walletApiKey || !state.entitySecret || !formData.walletId)) ||
-                      (signingMethod === 'web3' && !formData.privateKey)}
-                  >
-                    {permit2Loading 
-                      ? `Approving with ${signingMethod === 'circle' ? 'Circle SDK' : 'Ethers Wallet'}...` 
-                      : `🔓 Approve Permit2 (${signingMethod === 'circle' ? 'Circle SDK' : 'Ethers Wallet'})`
-                    }
-                  </button>
-                  
-                  {((signingMethod === 'circle' && (!state.walletApiKey || !state.entitySecret || !formData.walletId)) ||
-                    (signingMethod === 'web3' && !formData.privateKey)) && (
-                    <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#718096' }}>
-                      {signingMethod === 'circle' 
-                        ? 'Configure Circle credentials in Settings to enable approval'
-                        : 'Enter a private key to enable ethers wallet approval'
-                      }
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Permit2 Response Display */}
-              {permit2Error && (
-                <div style={{ 
-                  marginTop: '1rem',
-                  padding: '1rem', 
-                  backgroundColor: '#fed7d7', 
-                  border: '1px solid #e53e3e', 
-                  borderRadius: '6px'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
-                    <span style={{ fontSize: '1.2rem' }}>❌</span>
-                    <div>
-                      <strong style={{ color: '#e53e3e' }}>Approval Error:</strong>
-                      <div style={{ marginTop: '0.5rem', color: '#2d3748' }}>
-                        {permit2Error}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {permit2Response && (
-                <div style={{ 
-                  marginTop: '1rem',
-                  padding: '1rem', 
-                  backgroundColor: '#f0fff4', 
-                  border: '1px solid #38a169', 
-                  borderRadius: '6px'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                    <span style={{ fontSize: '1.2rem' }}>✅</span>
-                    <strong style={{ color: '#38a169' }}>Permit2 Approved!</strong>
-                  </div>
-                  <div style={{ fontSize: '0.9rem', color: '#2c5aa0' }}>
-                    <strong>Transaction ID:</strong> {permit2Response.id}<br/>
-                    <strong>Status:</strong> {permit2Response.state}<br/>
-                    <strong>Token:</strong> {permit2Response.tokenAddress}<br/>
-                    <strong>Approval:</strong> Unlimited (recommended for Permit2)
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Generate Permit Button */}
-          <div style={{ 
-            marginBottom: '2rem', 
-            textAlign: 'center',
-            padding: '1.5rem',
-            backgroundColor: formData.signature ? '#f0fff4' : '#f7fafc',
-            border: `2px solid ${formData.signature ? '#38a169' : '#e2e8f0'}`,
-            borderRadius: '8px'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
-              <span style={{ fontSize: '1.5rem', marginRight: '0.5rem' }}>
-                {formData.signature ? '✅' : '🔐'}
-              </span>
-              <h3 style={{ 
-                margin: 0, 
-                color: formData.signature ? '#38a169' : '#4a5568'
-              }}>
-                Step 2: Generate & Sign Permit
-              </h3>
-            </div>
-            
-            {deliverType === 'taker' && formData.permitToken && !permit2Approved[formData.permitToken] && (
-              <div style={{ 
-                marginBottom: '1rem',
-                padding: '0.75rem',
-                backgroundColor: '#fffaf0',
-                border: '1px solid #ed8936',
-                borderRadius: '4px',
-                fontSize: '0.9rem',
-                color: '#8b5738'
-              }}>
-                ⚠️ Please approve Permit2 contract first (Step 1 above)
-              </div>
-            )}
-            
-            <button 
-              type="button" 
-              onClick={generateAndSignPermit}
-              className="example-button"
-              style={{ 
-                backgroundColor: formData.signature ? '#38a169' : '#667eea', 
-                fontWeight: 'bold',
-                padding: '0.75rem 1.5rem',
-                fontSize: '1rem',
-                borderRadius: '6px',
-                border: 'none',
-                color: 'white',
-                cursor: 'pointer',
-                boxShadow: `0 2px 4px rgba(${formData.signature ? '56, 161, 105' : '102, 126, 234'}, 0.3)`,
-                opacity: (deliverType === 'taker' && formData.permitToken && !permit2Approved[formData.permitToken]) ? 0.6 : 1
-              }}
-              title="Generate random nonce/deadline and sign permit"
-              disabled={loading || !formData.permitToken || !formData.permitAmount || !formData.tradeIds ||
-                (deliverType === 'taker' && formData.permitToken && !permit2Approved[formData.permitToken]) ||
-                (signingMethod === 'circle' && (!state.walletApiKey || !state.entitySecret || !formData.walletId)) ||
-                (signingMethod === 'web3' && !formData.privateKey)}
-            >
-              {formData.signature ? '✅ Permit Ready' : (loading ? 'Signing...' : '🔐 Generate & Sign Permit')}
-            </button>
-            {((signingMethod === 'circle' && (!formData.permitToken || !formData.permitAmount || !state.walletApiKey || !state.entitySecret || !formData.walletId)) ||
-             (signingMethod === 'web3' && (!formData.permitToken || !formData.permitAmount || !formData.privateKey))) && (
-              <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#718096' }}>
-                {!formData.permitToken || !formData.permitAmount ? 
-                  'Select a token and enter an amount to enable permit generation' :
-                  signingMethod === 'circle' ? 
-                    'Configure Circle credentials in Settings to enable programmable wallet signing' :
-                    'Enter a private key to enable Web3js signing'
-                }
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginBottom: '2rem' }}>
+            {/* Typed Data Display - Editable */}
             <div className="form-group">
-              <label htmlFor="permitNonce">
-                Nonce * 
+              <label>
+                EIP-712 Typed Data
                 <span style={{ fontSize: '0.8rem', color: '#667eea', marginLeft: '0.5rem' }}>
-                  🔐 Auto-generated
+                  📝 Editable
                 </span>
               </label>
-              <input
-                type="number"
-                id="permitNonce"
-                value={formData.permitNonce}
-                onChange={(e) => handleInputChange('permitNonce', e.target.value)}
-                placeholder="Unique nonce for this permit (click Generate & Sign Permit)"
-                required
-                min="0"
-                step="1"
+              <textarea
+                value={editableTypedData}
+                onChange={(e) => {
+                  setEditableTypedData(e.target.value);
+                  setTypedDataError(null);
+                  // Clear signature when typed data is modified
+                  setFormData(prev => ({ ...prev, signature: '' }));
+                }}
+                placeholder="Typed data will appear here after clicking 'Get Typed Data'. You can edit it before signing."
+                rows={16}
                 style={{ 
                   width: '100%', 
+                  resize: 'vertical', 
                   padding: '0.75rem', 
-                  fontSize: '0.95rem',
-                  backgroundColor: formData.permitNonce ? '#f0f8ff' : 'white',
-                  borderColor: formData.permitNonce ? '#667eea' : '#e2e8f0'
+                  fontSize: '0.8rem',
+                  backgroundColor: editableTypedData ? '#f0f8ff' : '#f8f9fa',
+                  borderColor: typedDataError ? '#e53e3e' : (editableTypedData ? '#667eea' : '#e2e8f0'),
+                  fontFamily: 'monospace'
                 }}
               />
               <small style={{ color: '#718096', fontSize: '0.85rem' }}>
-                Unique number to prevent replay attacks
-              </small>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="permitDeadline">
-                Deadline * 
-                <span style={{ fontSize: '0.8rem', color: '#667eea', marginLeft: '0.5rem' }}>
-                  🔐 Auto-generated
-                </span>
-              </label>
-              <input
-                type="number"
-                id="permitDeadline"
-                value={formData.permitDeadline}
-                onChange={(e) => handleInputChange('permitDeadline', e.target.value)}
-                placeholder="Unix timestamp (click Generate & Sign Permit)"
-                required
-                min="0"
-                step="1"
-                style={{ 
-                  width: '100%', 
-                  padding: '0.75rem', 
-                  fontSize: '0.95rem',
-                  backgroundColor: formData.permitDeadline ? '#f0f8ff' : 'white',
-                  borderColor: formData.permitDeadline ? '#667eea' : '#e2e8f0'
-                }}
-              />
-              <small style={{ color: '#718096', fontSize: '0.85rem' }}>
-                Expiration time for this permit
-                {formData.permitDeadline && (
-                  <span style={{ color: '#667eea', marginLeft: '0.5rem' }}>
-                    (Expires: {new Date(parseInt(formData.permitDeadline) * 1000).toLocaleString()})
+                EIP-712 typed data structure for Permit2 funding. Retrieved from Circle's API and editable before signing.
+                {response?.success && (
+                  <span style={{ color: '#38a169', marginLeft: '0.5rem' }}>
+                    ✅ Typed data retrieved
+                  </span>
+                )}
+                {editableTypedData && response?.details?.typedData && editableTypedData !== JSON.stringify(response.details.typedData, null, 2) && (
+                  <span style={{ color: '#f56500', marginLeft: '0.5rem' }}>
+                    ⚠️ Modified from original
                   </span>
                 )}
               </small>
+              
+              {/* Reset to Original Button */}
+              {editableTypedData && response?.details?.typedData && editableTypedData !== JSON.stringify(response.details.typedData, null, 2) && (
+                <div style={{ marginTop: '0.5rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditableTypedData(JSON.stringify(response.details.typedData, null, 2));
+                      setTypedDataError(null);
+                      setFormData(prev => ({ ...prev, signature: '' }));
+                    }}
+                    style={{
+                      padding: '0.25rem 0.5rem',
+                      fontSize: '0.8rem',
+                      backgroundColor: '#fff3cd',
+                      color: '#856404',
+                      border: '1px solid #ffc107',
+                      borderRadius: '4px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ↺ Reset to Original
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        const parsed = JSON.parse(editableTypedData);
+                        setEditableTypedData(JSON.stringify(parsed, null, 2));
+                        setTypedDataError(null);
+                      } catch (err) {
+                        setTypedDataError('Cannot format invalid JSON');
+                      }
+                    }}
+                    style={{
+                      padding: '0.25rem 0.5rem',
+                      fontSize: '0.8rem',
+                      backgroundColor: '#e6fffa',
+                      color: '#234e52',
+                      border: '1px solid #81e6d9',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      marginLeft: '0.5rem'
+                    }}
+                  >
+                    📝 Format JSON
+                  </button>
+                </div>
+              )}
+              
+              {typedDataError && (
+                <div style={{ 
+                  marginTop: '0.5rem',
+                  padding: '0.5rem', 
+                  backgroundColor: '#fed7d7', 
+                  border: '1px solid #e53e3e', 
+                  borderRadius: '4px',
+                  fontSize: '0.85rem',
+                  color: '#e53e3e'
+                }}>
+                  {typedDataError}
+                </div>
+              )}
             </div>
-          </div>
+            
+            {/* Sign Typed Data Button - Only show if we have editable typed data and no signature */}
+            {editableTypedData && !formData.signature && (
+              <div style={{ 
+                marginBottom: '1rem', 
+                textAlign: 'center',
+                padding: '1rem',
+                backgroundColor: '#fff3cd',
+                border: '2px solid #ffc107',
+                borderRadius: '6px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '1.2rem', marginRight: '0.5rem' }}>🔐</span>
+                  <h4 style={{ 
+                    margin: 0, 
+                    color: '#856404'
+                  }}>
+                    Sign Typed Data with Circle SDK
+                  </h4>
+                </div>
+                
+                <button 
+                  type="button" 
+                  onClick={signTypedData}
+                  style={{ 
+                    backgroundColor: '#667eea', 
+                    color: 'white',
+                    border: 'none',
+                    padding: '0.5rem 1rem',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '0.9rem'
+                  }}
+                  disabled={loading || !state.walletApiKey || !state.entitySecret || !formData.walletId || !!typedDataError}
+                >
+                  {loading ? 'Signing...' : 'Sign with Circle SDK'}
+                </button>
+                
+                {(!state.walletApiKey || !state.entitySecret || !formData.walletId) && (
+                  <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#856404' }}>
+                    Configure Circle credentials in Settings to enable signing
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Signature Display */}
+            {formData.signature && (
+              <div className="form-group">
+                <label>Generated Signature</label>
+                <textarea
+                  value={formData.signature}
+                  readOnly
+                  rows={3}
+                  style={{ 
+                    width: '100%', 
+                    resize: 'vertical', 
+                    padding: '0.75rem', 
+                    fontSize: '0.8rem',
+                    backgroundColor: '#f0fff4',
+                    borderColor: '#38a169',
+                    fontFamily: 'monospace'
+                  }}
+                />
+                <small style={{ color: '#38a169', fontSize: '0.85rem' }}>
+                  ✅ Signature generated successfully with Circle SDK
+                </small>
+              </div>
+            )}
+
+
+
 
           <div className="form-group">
             <label htmlFor="signature">
@@ -1322,88 +1044,142 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
           </div>
         </fieldset>
 
-        <div style={{
-          marginTop: '2rem',
-          padding: '1.5rem',
-          backgroundColor: '#e6fffa',
-          border: '2px solid #319795',
-          borderRadius: '8px',
-          textAlign: 'center'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
-            <span style={{ fontSize: '1.5rem', marginRight: '0.5rem' }}>🚀</span>
-            <h3 style={{ margin: 0, color: '#319795' }}>
-              Step 3: Execute {deliverType === 'taker' ? 'Taker' : 'Maker'} Deliver
-            </h3>
-          </div>
-          
-          {deliverType === 'taker' && (
-            <div style={{ marginBottom: '1rem' }}>
-              {!permit2Approved[formData.permitToken] && formData.permitToken && (
-                <div style={{ 
-                  marginBottom: '0.5rem',
-                  padding: '0.5rem',
-                  backgroundColor: '#fffaf0',
-                  border: '1px solid #ed8936',
-                  borderRadius: '4px',
-                  fontSize: '0.85rem',
-                  color: '#8b5738'
+        {/* Contract Execution Section */}
+        {formData.signature && (
+          <fieldset style={{ border: '1px solid #e2e8f0', borderRadius: '6px', padding: '2rem', marginBottom: '2rem' }}>
+            <legend style={{ fontWeight: 'bold', color: '#2d3748', fontSize: '1.1rem' }}>
+              Contract Execution
+            </legend>
+            
+            <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f0f8ff', border: '1px solid #667eea', borderRadius: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                <span style={{ fontSize: '1.2rem' }}>🚀</span>
+                <strong style={{ color: '#2d3748' }}>Ready to Execute Contract</strong>
+              </div>
+              <p style={{ margin: 0, fontSize: '0.95rem', color: '#718096' }}>
+                {fundingMode === 'net' && deliverType === 'maker' 
+                  ? `Execute makerNetDeliver function with ${parseTradeIds(formData.tradeIds).length} trade IDs using net settlement.`
+                  : `Execute ${deliverType}${isBatchMode() ? 'BatchDeliver' : 'Deliver'} function ${isBatchMode() ? `with ${parseTradeIds(formData.tradeIds).length} trade IDs` : 'with single trade ID'}.`
+                }
+              </p>
+            </div>
+
+
+            {/* Contract Address */}
+            <div className="form-group">
+              <label htmlFor="contractAddress">Contract Address *</label>
+              <input
+                type="text"
+                id="contractAddress"
+                value={formData.contractAddress}
+                onChange={(e) => handleInputChange('contractAddress', e.target.value)}
+                placeholder="0x... (FxEscrow contract address)"
+                required
+                style={{ width: '100%', padding: '0.75rem', fontSize: '0.95rem' }}
+              />
+              <small style={{ color: '#718096', fontSize: '0.85rem' }}>
+                The deployed FxEscrow contract address on the target blockchain.
+              </small>
+            </div>
+
+            {/* Wallet ID */}
+            <div className="form-group">
+              <label htmlFor="walletId">Wallet ID *</label>
+              <input
+                type="text"
+                id="walletId"
+                value={formData.walletId}
+                onChange={(e) => handleInputChange('walletId', e.target.value)}
+                placeholder="Circle programmable wallet ID"
+                required
+                style={{ width: '100%', padding: '0.75rem', fontSize: '0.95rem' }}
+              />
+              <small style={{ color: '#718096', fontSize: '0.85rem' }}>
+                Your Circle programmable wallet ID for contract execution.
+              </small>
+            </div>
+
+            {/* Reference ID (Optional) */}
+            <div className="form-group">
+              <label htmlFor="refId">Reference ID (Optional)</label>
+              <input
+                type="text"
+                id="refId"
+                value={formData.refId}
+                onChange={(e) => handleInputChange('refId', e.target.value)}
+                placeholder="Optional reference ID for tracking"
+                style={{ width: '100%', padding: '0.75rem', fontSize: '0.95rem' }}
+              />
+              <small style={{ color: '#718096', fontSize: '0.85rem' }}>
+                Optional reference ID for transaction tracking and identification.
+              </small>
+            </div>
+
+            {/* Execute Contract Button */}
+            <div style={{ 
+              marginTop: '2rem',
+              textAlign: 'center',
+              padding: '1.5rem',
+              backgroundColor: '#f0fff4',
+              border: '2px solid #38a169',
+              borderRadius: '8px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
+                <span style={{ fontSize: '1.5rem', marginRight: '0.5rem' }}>🚀</span>
+                <h3 style={{ 
+                  margin: 0, 
+                  color: '#38a169'
                 }}>
-                  ⚠️ Approve Permit2 contract first
-                </div>
-              )}
-              {!formData.signature && formData.permitToken && permit2Approved[formData.permitToken] && (
-                <div style={{ 
-                  marginBottom: '0.5rem',
-                  padding: '0.5rem',
-                  backgroundColor: '#f0f8ff',
-                  border: '1px solid #667eea',
-                  borderRadius: '4px',
-                  fontSize: '0.85rem',
-                  color: '#4a5568'
-                }}>
-                  🔐 Generate permit signature first
+                  Execute {fundingMode === 'net' && deliverType === 'maker' ? 'MakerNet' : `${deliverType}${isBatchMode() ? 'Batch' : ''}`}Deliver
+                </h3>
+              </div>
+              
+              <button 
+                type="submit"
+                className="example-button"
+                style={{ 
+                  backgroundColor: '#38a169', 
+                  fontWeight: 'bold',
+                  padding: '0.75rem 2rem',
+                  fontSize: '1.1rem',
+                  borderRadius: '6px',
+                  border: 'none',
+                  color: 'white',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 6px rgba(56, 161, 105, 0.3)',
+                  opacity: 1
+                }}
+                title="Execute the contract function with Circle SDK"
+                disabled={loading || !formData.contractAddress || !formData.walletId || !state.walletApiKey || !state.entitySecret}
+              >
+                {loading ? 'Executing Contract...' : `🚀 Execute ${fundingMode === 'net' && deliverType === 'maker' ? 'MakerNet' : `${deliverType}${isBatchMode() ? 'Batch' : ''}`}Deliver`}
+              </button>
+              
+              {(!formData.contractAddress || !formData.walletId || !state.walletApiKey || !state.entitySecret) && (
+                <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#718096' }}>
+                  {!formData.contractAddress ? 'Enter contract address' :
+                   !formData.walletId ? 'Enter wallet ID' :
+                   (!state.walletApiKey || !state.entitySecret) ? 'Configure Circle credentials in Settings' : ''
+                  }
                 </div>
               )}
             </div>
-          )}
-          
-          <button 
-            type="submit" 
-            className="submit-button"
-            disabled={loading || 
-              (formData.permitToken && !permit2Approved[formData.permitToken]) ||
-              !formData.signature
-            }
-            style={{ 
-              width: '100%', 
-              padding: '1rem 2rem', 
-              fontSize: '1.1rem',
-              fontWeight: 'bold',
-              backgroundColor: (formData.permitToken && !permit2Approved[formData.permitToken]) || 
-                              !formData.signature ? '#a0aec0' : '#319795',
-              borderColor: (formData.permitToken && !permit2Approved[formData.permitToken]) || 
-                          !formData.signature ? '#a0aec0' : '#319795',
-              border: 'none',
-              borderRadius: '6px',
-              color: 'white',
-              cursor: (formData.permitToken && !permit2Approved[formData.permitToken]) || 
-                     !formData.signature ? 'not-allowed' : 'pointer'
-            }}
-          >
-            {loading ? `Executing ${deliverType} Deliver...` : `🚀 Execute ${deliverType === 'taker' ? 'Taker' : 'Maker'} Deliver`}
-          </button>
-        </div>
+          </fieldset>
+        )}
+
       </form>
 
       {/* Response Display */}
-      {(response || error || loading) && (
+      {(response || error || loading) && showResponseDisplay && (
         <div style={{ 
           marginTop: '2rem', 
-          padding: '1.5rem', 
+          padding: '2rem', 
           border: '1px solid #e2e8f0', 
-          borderRadius: '8px',
-          backgroundColor: '#f9f9f9'
+          borderRadius: '12px',
+          backgroundColor: '#f9f9f9',
+          minHeight: '400px',
+          maxHeight: '800px',
+          overflowY: 'auto'
         }}>
           <h3 style={{ margin: '0 0 1rem 0', color: '#2d3748' }}>Response</h3>
           
@@ -1623,7 +1399,9 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                   overflow: 'auto',
                   fontSize: '0.85rem',
                   whiteSpace: 'pre-wrap',
-                  marginTop: '0.5rem'
+                  marginTop: '0.5rem',
+                  maxHeight: '400px',
+                  minHeight: '200px'
                 }}>
                   {JSON.stringify(response, null, 2)}
                 </pre>

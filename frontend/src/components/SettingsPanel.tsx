@@ -9,8 +9,10 @@ interface SettingsPanelProps {
   onWalletApiKeyChange: (walletApiKey: string) => void;
   entitySecret: string;
   onEntitySecretChange: (entitySecret: string) => void;
-  walletId: string;
-  onWalletIdChange: (walletId: string) => void;
+  makerWalletId: string;
+  onMakerWalletIdChange: (makerWalletId: string) => void;
+  takerWalletId: string;
+  onTakerWalletIdChange: (takerWalletId: string) => void;
   environment: 'smokebox' | 'sandbox';
   onEnvironmentChange: (environment: 'smokebox' | 'sandbox') => void;
 }
@@ -24,8 +26,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onWalletApiKeyChange,
   entitySecret,
   onEntitySecretChange,
-  walletId,
-  onWalletIdChange,
+  makerWalletId,
+  onMakerWalletIdChange,
+  takerWalletId,
+  onTakerWalletIdChange,
   environment,
   onEnvironmentChange
 }) => {
@@ -111,17 +115,32 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
           </div>
 
           <div className="settings-group">
-            <label htmlFor="wallet-id">Programmable Wallet ID</label>
+            <label htmlFor="maker-wallet-id">Maker Wallet ID</label>
             <input
-              id="wallet-id"
+              id="maker-wallet-id"
               type="text"
-              value={walletId}
-              onChange={(e) => onWalletIdChange(e.target.value)}
-              placeholder="Enter your programmable wallet ID"
+              value={makerWalletId}
+              onChange={(e) => onMakerWalletIdChange(e.target.value)}
+              placeholder="Enter maker programmable wallet ID"
               className="settings-input"
             />
             <p className="settings-help">
-              Used for all wallet operations (auto-populated in forms)
+              Used for maker flow operations (auto-populated when maker flow is selected)
+            </p>
+          </div>
+
+          <div className="settings-group">
+            <label htmlFor="taker-wallet-id">Taker Wallet ID</label>
+            <input
+              id="taker-wallet-id"
+              type="text"
+              value={takerWalletId}
+              onChange={(e) => onTakerWalletIdChange(e.target.value)}
+              placeholder="Enter taker programmable wallet ID"
+              className="settings-input"
+            />
+            <p className="settings-help">
+              Used for taker flow operations (auto-populated when taker flow is selected)
             </p>
           </div>
 

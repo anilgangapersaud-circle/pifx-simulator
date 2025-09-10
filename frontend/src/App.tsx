@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import './App.css';
 import HamburgerMenu from './components/HamburgerMenu';
@@ -14,6 +14,7 @@ import ContractExecutionPage from './pages/ContractExecutionPage';
 import BreachTradePage from './pages/BreachTradePage';
 import TakerDeliverPage from './pages/TakerDeliverPage';
 import CompleteWorkflowPage from './pages/CompleteWorkflowPage';
+import MakerNetBalancesPage from './pages/MakerNetBalancesPage';
 
 
 export interface AppState {
@@ -21,8 +22,16 @@ export interface AppState {
   apiKey: string;
   walletApiKey: string;
   entitySecret: string;
-  walletId: string;
+  walletId: string; // Keep for backward compatibility
+  makerWalletId: string;
+  takerWalletId: string;
   signingMethod: 'circle' | 'web3';
+  currentFlowType?: 'taker' | 'maker'; // Track current flow type for UI theming
+  // Token balance
+  tokenBalance: any;
+  balanceLoading: boolean;
+  balanceError: string | null;
+  showBalanceToast: boolean;
   // Step responses
   quoteResponse: any;
   tradeResponse: any;
@@ -53,7 +62,8 @@ const SESSION_KEYS = {
   API_KEY: 'circle_api_key',
   WALLET_API_KEY: 'circle_wallet_api_key',
   ENTITY_SECRET: 'circle_entity_secret',
-  WALLET_ID: 'circle_wallet_id',
+  MAKER_WALLET_ID: 'circle_maker_wallet_id',
+  TAKER_WALLET_ID: 'circle_taker_wallet_id',
   ENVIRONMENT: 'circle_environment',
   SIGNING_METHOD: 'circle_signing_method'
 };
@@ -75,12 +85,22 @@ const saveToSession = (key: string, value: any) => {
   }
 };
 
+// Helper function to get appropriate wallet ID based on flow type
+export const getWalletIdForFlow = (state: AppState, flowType: 'taker' | 'maker'): string => {
+  if (flowType === 'taker') {
+    return state.takerWalletId || state.walletId || ''; // Fallback to legacy walletId then empty string
+  } else {
+    return state.makerWalletId || state.walletId || ''; // Fallback to legacy walletId then empty string
+  }
+};
+
 const clearSession = () => {
   try {
     sessionStorage.removeItem(SESSION_KEYS.API_KEY);
     sessionStorage.removeItem(SESSION_KEYS.WALLET_API_KEY);
     sessionStorage.removeItem(SESSION_KEYS.ENTITY_SECRET);
-    sessionStorage.removeItem(SESSION_KEYS.WALLET_ID);
+    sessionStorage.removeItem(SESSION_KEYS.MAKER_WALLET_ID);
+    sessionStorage.removeItem(SESSION_KEYS.TAKER_WALLET_ID);
     sessionStorage.removeItem(SESSION_KEYS.ENVIRONMENT);
     sessionStorage.removeItem(SESSION_KEYS.SIGNING_METHOD);
   } catch (error) {
@@ -90,13 +110,27 @@ const clearSession = () => {
 
 function AppContent() {
   const location = useLocation();
+  
+  // Migration logic: if maker/taker wallet IDs are empty but legacy walletId exists, use it for both
+  const legacyWalletId = getFromSession('circle_wallet_id', ''); // Direct key for one-time migration
+  const makerWalletId = getFromSession(SESSION_KEYS.MAKER_WALLET_ID, '') || legacyWalletId;
+  const takerWalletId = getFromSession(SESSION_KEYS.TAKER_WALLET_ID, '') || legacyWalletId;
+  
   const [state, setState] = useState<AppState>({
     environment: getFromSession(SESSION_KEYS.ENVIRONMENT, 'smokebox'),
     apiKey: getFromSession(SESSION_KEYS.API_KEY, ''),
     walletApiKey: getFromSession(SESSION_KEYS.WALLET_API_KEY, ''),
     entitySecret: getFromSession(SESSION_KEYS.ENTITY_SECRET, ''),
-    walletId: getFromSession(SESSION_KEYS.WALLET_ID, ''),
+    walletId: legacyWalletId, // Keep for migration purposes only
+    makerWalletId: makerWalletId,
+    takerWalletId: takerWalletId,
     signingMethod: getFromSession(SESSION_KEYS.SIGNING_METHOD, 'circle'),
+    currentFlowType: 'taker', // Default to taker flow
+    // Token balance
+    tokenBalance: null,
+    balanceLoading: false,
+    balanceError: null,
+    showBalanceToast: false,
     // Step responses
     quoteResponse: null,
     tradeResponse: null,
@@ -118,6 +152,101 @@ function AppContent() {
     settingsOpen: false
   });
 
+  // One-time migration effect
+  useEffect(() => {
+    if (legacyWalletId && (!makerWalletId || !takerWalletId)) {
+      // Migrate legacy wallet ID to both maker and taker if they're empty
+      if (!makerWalletId) {
+        saveToSession(SESSION_KEYS.MAKER_WALLET_ID, legacyWalletId);
+      }
+      if (!takerWalletId) {
+        saveToSession(SESSION_KEYS.TAKER_WALLET_ID, legacyWalletId);
+      }
+      // Remove legacy wallet ID from session storage after migration
+      try {
+        sessionStorage.removeItem('circle_wallet_id');
+      } catch (error) {
+        console.warn('Failed to remove legacy wallet ID:', error);
+      }
+    }
+  }, []); // Run only once on mount
+
+  // Helper function to get token image
+  const getTokenImage = (symbol: string, tokenAddress?: string) => {
+    const tokenImages: { [key: string]: string } = {
+      'USDC': 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ43MuDqq54iD1ZCRL_uthAPkfwSSL-J5qI_Q&s',
+      'EURC': 'https://assets.coingecko.com/coins/images/26045/standard/euro.png',
+      'ETH': 'https://www.citypng.com/public/uploads/preview/ethereum-eth-round-logo-icon-png-701751694969815akblwl2552.png',
+      'ETH-SEPOLIA': 'https://www.citypng.com/public/uploads/preview/ethereum-eth-round-logo-icon-png-701751694969815akblwl2552.png'
+    };
+    
+    return tokenImages[symbol] || `https://via.placeholder.com/24/e2e8f0/718096?text=${symbol?.charAt(0) || '?'}`;
+  };
+
+  // Function to check token balance
+  const checkTokenBalance = async () => {
+    const currentWalletId = getWalletIdForFlow(state, state.currentFlowType || 'taker');
+    
+    if (!currentWalletId) {
+      updateState({ 
+        balanceError: 'No wallet ID configured for current flow type',
+        balanceLoading: false,
+        showBalanceToast: true
+      });
+      return;
+    }
+
+    if (!state.walletApiKey) {
+      updateState({ 
+        balanceError: 'Wallet API key not configured',
+        balanceLoading: false,
+        showBalanceToast: true
+      });
+      return;
+    }
+
+    updateState({ 
+      balanceLoading: true, 
+      balanceError: null,
+      tokenBalance: null 
+    });
+
+    try {
+      const response = await fetch('http://localhost:3001/api/getTokenBalance', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          walletApiKey: state.walletApiKey,
+          walletId: currentWalletId,
+          environment: state.environment
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to fetch token balance');
+      }
+
+      updateState({ 
+        tokenBalance: data,
+        balanceLoading: false,
+        balanceError: null,
+        showBalanceToast: true
+      });
+    } catch (error: any) {
+      console.error('Error fetching token balance:', error);
+      updateState({ 
+        balanceError: error.message || 'Failed to fetch token balance',
+        balanceLoading: false,
+        tokenBalance: null,
+        showBalanceToast: true
+      });
+    }
+  };
+
   const updateState = (updates: Partial<AppState>) => {
     setState(prev => ({ ...prev, ...updates }));
     
@@ -131,8 +260,11 @@ function AppContent() {
     if (updates.entitySecret !== undefined) {
       saveToSession(SESSION_KEYS.ENTITY_SECRET, updates.entitySecret);
     }
-    if (updates.walletId !== undefined) {
-      saveToSession(SESSION_KEYS.WALLET_ID, updates.walletId);
+    if (updates.makerWalletId !== undefined) {
+      saveToSession(SESSION_KEYS.MAKER_WALLET_ID, updates.makerWalletId);
+    }
+    if (updates.takerWalletId !== undefined) {
+      saveToSession(SESSION_KEYS.TAKER_WALLET_ID, updates.takerWalletId);
     }
     if (updates.environment !== undefined) {
       saveToSession(SESSION_KEYS.ENVIRONMENT, updates.environment);
@@ -142,6 +274,7 @@ function AppContent() {
     }
   };
 
+
   return (
     <div className="App">
       <header className="App-header">
@@ -149,12 +282,22 @@ function AppContent() {
           <div className="header-left">
             <HamburgerMenu currentPath={location.pathname} />
           </div>
-          <button 
-            className="settings-button"
-            onClick={() => updateState({ settingsOpen: true })}
-          >
-            ⚙️ Settings
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <button 
+              className="balance-button"
+              onClick={checkTokenBalance}
+              disabled={state.balanceLoading}
+              title={`Check token balance for ${state.currentFlowType || 'taker'} wallet`}
+            >
+              {state.balanceLoading ? '⏳' : '💳'} Wallet
+            </button>
+            <button 
+              className="settings-button"
+              onClick={() => updateState({ settingsOpen: true })}
+            >
+              ⚙️ Settings
+            </button>
+          </div>
         </div>
       </header>
       
@@ -170,6 +313,7 @@ function AppContent() {
           <Route path="/taker-deliver" element={<TakerDeliverPage state={state} updateState={updateState} />} />
           <Route path="/get-trades" element={<GetTradesPage state={state} updateState={updateState} />} />
           <Route path="/get-trade" element={<GetTradeByIdPage state={state} updateState={updateState} />} />
+          <Route path="/maker-net-balances" element={<MakerNetBalancesPage state={state} updateState={updateState} />} />
           <Route path="/complete-workflow" element={<CompleteWorkflowPage state={state} updateState={updateState} />} />
         </Routes>
       </main>
@@ -183,11 +327,152 @@ function AppContent() {
         onWalletApiKeyChange={(walletApiKey) => updateState({ walletApiKey })}
         entitySecret={state.entitySecret}
         onEntitySecretChange={(entitySecret) => updateState({ entitySecret })}
-        walletId={state.walletId}
-        onWalletIdChange={(walletId) => updateState({ walletId })}
+        makerWalletId={state.makerWalletId}
+        onMakerWalletIdChange={(makerWalletId) => updateState({ makerWalletId })}
+        takerWalletId={state.takerWalletId}
+        onTakerWalletIdChange={(takerWalletId) => updateState({ takerWalletId })}
         environment={state.environment}
         onEnvironmentChange={(environment) => updateState({ environment })}
       />
+
+      {/* Token Balance Toast */}
+      {state.showBalanceToast && (
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          right: '20px',
+          width: '450px',
+          maxWidth: '90vw',
+          maxHeight: '80vh',
+          backgroundColor: 'white',
+          border: '1px solid #e2e8f0',
+          borderRadius: '8px',
+          boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
+          zIndex: 1000,
+          animation: 'slideInRight 0.3s ease-out',
+          overflowY: 'auto'
+        }}>
+          <div style={{
+            padding: '1rem',
+            borderBottom: state.balanceError ? 'none' : '1px solid #e2e8f0',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            backgroundColor: state.balanceError ? '#fed7d7' : '#f0fff4'
+          }}>
+            <h4 style={{ 
+              margin: 0, 
+              color: state.balanceError ? '#c53030' : '#38a169',
+              fontSize: '1rem'
+            }}>
+              {state.balanceError ? '❌ Balance Error' : `💰 Token Balances`}
+            </h4>
+            <button 
+              onClick={() => updateState({ showBalanceToast: false })}
+              style={{
+                background: 'none',
+                border: 'none',
+                fontSize: '1.2rem',
+                cursor: 'pointer',
+                color: state.balanceError ? '#c53030' : '#38a169'
+              }}
+            >
+              ×
+            </button>
+          </div>
+          
+          <div style={{ padding: '1rem' }}>
+            {state.balanceError ? (
+              <p style={{ margin: 0, color: '#c53030' }}>
+                {state.balanceError}
+              </p>
+            ) : state.tokenBalance ? (
+              <div>
+                  <strong>Token Balances ({state.tokenBalance.totalTokens}):</strong>
+                  {state.tokenBalance.tokens && state.tokenBalance.tokens.length > 0 ? (
+                    <div style={{ marginTop: '0.5rem', maxHeight: '200px', overflowY: 'auto' }}>
+                      {state.tokenBalance.tokens.map((tokenBalance: any, index: number) => (
+                        <div key={index} style={{ 
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center',
+                          padding: '0.75rem',
+                          backgroundColor: '#f8fafc',
+                          borderRadius: '6px',
+                          marginBottom: '0.5rem',
+                          fontSize: '0.9rem',
+                          border: '1px solid #e2e8f0'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            <img 
+                              src={getTokenImage(tokenBalance.token?.symbol, tokenBalance.token?.tokenAddress)}
+                              alt={tokenBalance.token?.symbol}
+                              style={{ 
+                                width: '32px', 
+                                height: '32px', 
+                                borderRadius: '50%',
+                                backgroundColor: 'white',
+                                border: '1px solid #e2e8f0'
+                              }}
+                              onError={(e) => {
+                                // Fallback to placeholder if image fails to load
+                                e.currentTarget.src = `https://via.placeholder.com/32/e2e8f0/718096?text=${tokenBalance.token?.symbol?.charAt(0) || '?'}`;
+                              }}
+                            />
+                            <div>
+                              <div style={{ fontWeight: 'bold', color: '#2d3748', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                {tokenBalance.token?.symbol || 'Unknown'}
+                                {tokenBalance.token?.isNative && (
+                                  <span style={{ 
+                                    fontSize: '0.7rem', 
+                                    backgroundColor: '#e6fffa', 
+                                    color: '#234e52', 
+                                    padding: '0.1rem 0.4rem', 
+                                    borderRadius: '12px',
+                                    fontWeight: 'normal'
+                                  }}>
+                                    NATIVE
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ color: '#718096', fontSize: '0.8rem' }}>
+                                {tokenBalance.token?.name}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontWeight: 'bold', color: '#2d3748', fontSize: '1rem' }}>
+                              {parseFloat(tokenBalance.amount || '0').toLocaleString(undefined, {
+                                maximumFractionDigits: 6,
+                                minimumFractionDigits: 0
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ 
+                      marginTop: '0.5rem', 
+                      padding: '1rem', 
+                      backgroundColor: '#f8fafc', 
+                      borderRadius: '4px', 
+                      color: '#718096', 
+                      textAlign: 'center',
+                      fontSize: '0.9rem'
+                    }}>
+                      No tokens found
+                    </div>
+                  )}
+                </div>
+            ) : (
+              <p style={{ margin: 0, color: '#718096' }}>
+                No balance data available
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AppState } from '../App';
+import { AppState, getWalletIdForFlow } from '../App';
 import axios from 'axios';
 
 interface BreachTradeFormProps {
@@ -10,7 +10,7 @@ interface BreachTradeFormProps {
 const BreachTradeForm: React.FC<BreachTradeFormProps> = ({ state, updateState }) => {
   const [formData, setFormData] = useState({
     contractAddress: '0x51F8418D9c64E67c243DCb8f10771bA83bcd9Aa8', // Default FxEscrow contract
-    walletId: state.walletId || '',
+    walletId: getWalletIdForFlow(state, 'taker'), // Default to taker for standalone usage
     refId: '',
     tradeId: ''
   });
@@ -23,13 +23,14 @@ const BreachTradeForm: React.FC<BreachTradeFormProps> = ({ state, updateState })
 
   // Auto-populate wallet ID when it changes
   React.useEffect(() => {
-    if (state.walletId !== formData.walletId) {
+    const appropriateWalletId = getWalletIdForFlow(state, 'taker'); // Default to taker for standalone usage
+    if (appropriateWalletId !== formData.walletId) {
       setFormData(prev => ({
         ...prev,
-        walletId: state.walletId
+        walletId: appropriateWalletId
       }));
     }
-  }, [state.walletId, formData.walletId]);
+  }, [state.walletId, state.makerWalletId, state.takerWalletId, formData.walletId]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({

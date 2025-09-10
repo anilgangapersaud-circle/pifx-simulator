@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
-import { AppState } from '../App';
+import { AppState, getWalletIdForFlow } from '../App';
 import axios from 'axios';
 
 interface SignTypedDataFormProps {
   state: AppState;
   updateState: (updates: Partial<AppState>) => void;
+  flowType?: 'taker' | 'maker';
 }
 
-const SignTypedDataForm: React.FC<SignTypedDataFormProps> = ({ state, updateState }) => {
+const SignTypedDataForm: React.FC<SignTypedDataFormProps> = ({ state, updateState, flowType }) => {
   const [formData, setFormData] = useState({
-    walletId: state.walletId || '',
+    walletId: getWalletIdForFlow(state, flowType || 'taker'),
     typedData: null as any
   });
   const [typedDataText, setTypedDataText] = useState('');
@@ -122,13 +123,14 @@ const SignTypedDataForm: React.FC<SignTypedDataFormProps> = ({ state, updateStat
 
   // Update wallet ID when it changes in settings
   React.useEffect(() => {
-    if (state.walletId !== formData.walletId) {
+    const appropriateWalletId = getWalletIdForFlow(state, flowType || 'taker');
+    if (appropriateWalletId !== formData.walletId) {
       setFormData(prev => ({
         ...prev,
-        walletId: state.walletId
+        walletId: appropriateWalletId
       }));
     }
-  }, [state.walletId, formData.walletId]);
+  }, [state.walletId, state.makerWalletId, state.takerWalletId, flowType, formData.walletId]);
 
   const fxEscrowExample = {
     "domain": {

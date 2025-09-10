@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppState } from '../App';
 import QuoteCreationForm from '../components/QuoteCreationForm';
 import TradeCreationForm from '../components/TradeCreationForm';
@@ -20,6 +20,11 @@ type FlowType = 'taker' | 'maker';
 const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, updateState }) => {
   const [flowType, setFlowType] = useState<FlowType>('taker');
   const [currentStep, setCurrentStep] = useState<WorkflowStep>('quote');
+  
+  // Initialize flow type in global state when component mounts
+  useEffect(() => {
+    updateState({ currentFlowType: flowType });
+  }, []); // Run once on mount
   const [workflowData, setWorkflowData] = useState({
     quoteResponse: null as any,
     tradeResponse: null as any,
@@ -131,7 +136,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
   const handleDeliveryUpdate = (updates: Partial<AppState>) => {
     updateState(updates);
     
-    // If we got a successful delivery response, mark as complete
+    // If we got a successful delivery response, mark as complete and auto-advance
     if (updates.response && !updates.error && !updates.loading) {
       setWorkflowData(prev => ({
         ...prev,
@@ -139,7 +144,10 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
         deliveryComplete: true
       }));
       
-      // User must manually proceed to complete step
+      // Automatically move to complete step after successful delivery
+      setTimeout(() => {
+        setCurrentStep('complete');
+      }, 1000); // Small delay to show success message briefly
     }
   };
 
@@ -247,6 +255,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
       deliveryComplete: false
     });
     updateState({ 
+      currentFlowType: newFlowType, // Update the global flow type for theming
       quoteResponse: null, 
       quoteError: null, 
       quoteLoading: false,
@@ -265,12 +274,27 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
     });
   };
 
+  // Helper function for arrow color
+  const getArrowColor = () => '#a0aec0';
+
   const renderStepIndicator = (step: WorkflowStep, stepNumber: number, label: string) => {
     const status = getStepStatus(step);
     const canNavigate = canNavigateToStep(step);
     
     // Don't render hidden steps
     if (status === 'hidden') return null;
+    
+    // Colors for all flows (using taker color scheme)
+    const getStepColors = () => {
+      return {
+        completed: '#38a169', // Green for completed steps
+        active: '#667eea',    // Blue for active step
+        available: '#f0f8ff', // Light blue for available steps
+        availableText: '#4a5568' // Gray text for available steps
+      };
+    };
+
+    const colors = getStepColors();
     
     return (
       <div 
@@ -305,16 +329,16 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
           fontWeight: 'bold',
           fontSize: '1rem',
           backgroundColor: 
-            status === 'completed' ? '#38a169' :
-            status === 'active' ? '#667eea' : 
-            status === 'available' ? '#f0f8ff' : '#e2e8f0',
+            status === 'completed' ? colors.completed :
+            status === 'active' ? colors.active : 
+            status === 'available' ? colors.available : '#e2e8f0',
           color: 
             status === 'completed' ? 'white' :
             status === 'active' ? 'white' :
-            status === 'available' ? '#667eea' : '#a0aec0',
+            status === 'available' ? colors.availableText : '#a0aec0',
           border: 
-            status === 'active' ? '3px solid #667eea' :
-            status === 'available' ? '2px solid #667eea' : 
+            status === 'active' ? `3px solid ${colors.active}` :
+            status === 'available' ? `2px solid ${colors.availableText}` : 
             status === 'disabled' ? 'none' : 'none',
           boxShadow: canNavigate ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
         }}>
@@ -325,9 +349,9 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
           fontSize: '0.8rem', 
           fontWeight: status === 'active' ? 'bold' : 'normal',
           color: 
-            status === 'active' ? '#667eea' :
-            status === 'available' ? '#667eea' : 
-            status === 'completed' ? '#38a169' : '#4a5568',
+            status === 'active' ? colors.active :
+            status === 'available' ? colors.availableText : 
+            status === 'completed' ? colors.completed : '#4a5568',
           textAlign: 'center'
         }}>
           {label}
@@ -355,15 +379,15 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               fontSize: '0.9rem'
             }}
           >
-            📦 Taker Flow
+            Taker
           </button>
           <button
             type="button"
             onClick={() => handleFlowTypeChange('maker')}
             style={{
               padding: '0.5rem 1rem',
-              border: `2px solid ${flowType === 'maker' ? '#38a169' : '#e2e8f0'}`,
-              backgroundColor: flowType === 'maker' ? '#38a169' : 'white',
+              border: `2px solid ${flowType === 'maker' ? '#667eea' : '#e2e8f0'}`,
+              backgroundColor: flowType === 'maker' ? '#667eea' : 'white',
               color: flowType === 'maker' ? 'white' : '#4a5568',
               borderRadius: '6px',
               cursor: 'pointer',
@@ -371,7 +395,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               fontSize: '0.9rem'
             }}
           >
-            🏭 Maker Flow
+            Maker
           </button>
         </div>
         
@@ -396,41 +420,41 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
           {flowType === 'taker' ? (
             <>
               {renderStepIndicator('quote', 1, 'Quote')}
-              <div style={{ fontSize: '1.2rem', color: '#a0aec0' }}>→</div>
+              <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
               {renderStepIndicator('trade', 2, 'Trade')}
-              <div style={{ fontSize: '1.2rem', color: '#a0aec0' }}>→</div>
+              <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
               {renderStepIndicator('presign', 3, 'Presign')}
-              <div style={{ fontSize: '1.2rem', color: '#a0aec0' }}>→</div>
+              <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
               {renderStepIndicator('sign', 4, 'Sign')}
-              <div style={{ fontSize: '1.2rem', color: '#a0aec0' }}>→</div>
+              <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
               {renderStepIndicator('register', 5, 'Register')}
-              <div style={{ fontSize: '1.2rem', color: '#a0aec0' }}>→</div>
+              <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
               {renderStepIndicator('deliver', 6, 'Deliver')}
-              <div style={{ fontSize: '1.2rem', color: '#a0aec0' }}>→</div>
+              <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
               {renderStepIndicator('complete', 7, 'Complete')}
             </>
           ) : (
             <>
               {renderStepIndicator('getTrades', 1, 'Get Trades')}
-              <div style={{ fontSize: '1.2rem', color: '#a0aec0' }}>→</div>
+              <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
               {renderStepIndicator('presign', 2, 'Presign')}
-              <div style={{ fontSize: '1.2rem', color: '#a0aec0' }}>→</div>
+              <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
               {renderStepIndicator('sign', 3, 'Sign')}
-              <div style={{ fontSize: '1.2rem', color: '#a0aec0' }}>→</div>
+              <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
               {renderStepIndicator('register', 4, 'Register')}
-              <div style={{ fontSize: '1.2rem', color: '#a0aec0' }}>→</div>
+              <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
               {renderStepIndicator('deliver', 5, 'Deliver')}
-              <div style={{ fontSize: '1.2rem', color: '#a0aec0' }}>→</div>
+              <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
               {renderStepIndicator('complete', 6, 'Complete')}
             </>
@@ -458,7 +482,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
       </div>
 
       <div className="page-content" style={{ maxWidth: 'none', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        {/* Step 1: Quote Creation */}
+        {/* Quote Creation */}
         {currentStep === 'quote' && (
           <div className="form-section" style={{ width: '100%' }}>
             <div style={{ 
@@ -469,7 +493,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               width: '100%'
             }}>
               <h2 style={{ marginBottom: '0.5rem', color: '#2d3748', textAlign: 'center' }}>
-                Step 1: Create Quote
+                Create Quote
               </h2>
               <p style={{ marginBottom: '1rem', color: '#718096', textAlign: 'center' }}>
                 Generate a price quote for your currency exchange. This establishes the trading terms and rate.
@@ -516,7 +540,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
           </div>
         )}
 
-        {/* Step 1: Get Trades (Maker Flow) */}
+        {/* Get Trades (Maker Flow) */}
         {currentStep === 'getTrades' && (
           <div className="form-section" style={{ width: '100%' }}>
             <div style={{ 
@@ -527,7 +551,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               width: '100%'
             }}>
               <h2 style={{ marginBottom: '0.5rem', color: '#2d3748', textAlign: 'center' }}>
-                Step 1: Get Available Trades
+                Get Available Trades
               </h2>
               <p style={{ marginBottom: '1rem', color: '#718096', textAlign: 'center' }}>
                 Retrieve trades where you can act as a maker. Filter by type: "maker" to see trades you can fulfill.
@@ -575,7 +599,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
           </div>
         )}
 
-        {/* Step 2: Trade Creation */}
+        {/* Trade Creation */}
         {currentStep === 'trade' && (
           <div className="form-section" style={{ width: '100%' }}>
             <div style={{ 
@@ -586,7 +610,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               width: '100%'
             }}>
               <h2 style={{ marginBottom: '0.5rem', color: '#2d3748', textAlign: 'center' }}>
-                Step 2: Create Trade
+                Create Trade
               </h2>
               <p style={{ marginBottom: '1rem', color: '#718096', textAlign: 'center' }}>
                 Create a trade order using your quote. This locks in the exchange rate and creates a tradeable contract.
@@ -633,7 +657,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
           </div>
         )}
 
-        {/* Step 3: Get Presign Data */}
+        {/* Get Presign Data */}
         {currentStep === 'presign' && (
           <div className="form-section" style={{ width: '100%' }}>
             <div style={{ 
@@ -644,7 +668,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               width: '100%'
             }}>
               <h2 style={{ marginBottom: '0.5rem', color: '#2d3748', textAlign: 'center' }}>
-                Step 3: Get Presign Data
+                Get Presign Data
               </h2>
               <p style={{ marginBottom: '1rem', color: '#718096', textAlign: 'center' }}>
                 Retrieve the structured data that needs to be signed for your trade. This contains the EIP-712 typed data.
@@ -691,7 +715,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
           </div>
         )}
 
-        {/* Step 4: Sign Typed Data */}
+        {/* Sign Typed Data */}
         {currentStep === 'sign' && (
           <div className="form-section" style={{ width: '100%' }}>
             <div style={{ 
@@ -702,13 +726,13 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               width: '100%'
             }}>
               <h2 style={{ marginBottom: '0.5rem', color: '#2d3748', textAlign: 'center' }}>
-                Step 4: Sign Typed Data
+                Sign Typed Data
               </h2>
               <p style={{ marginBottom: '1rem', color: '#718096', textAlign: 'center' }}>
                 Sign the EIP-712 structured data using your wallet. This creates a cryptographic signature for your trade.
               </p>
               
-              <SignTypedDataForm state={state} updateState={handleSignUpdate} />
+              <SignTypedDataForm state={state} updateState={handleSignUpdate} flowType={flowType} />
             </div>
 
             {/* Show success message when data is signed */}
@@ -749,7 +773,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
           </div>
         )}
 
-        {/* Step 5: Register Signature */}
+        {/* Register Signature */}
         {currentStep === 'register' && (
           <div className="form-section" style={{ width: '100%' }}>
             <div style={{ 
@@ -760,7 +784,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               width: '100%'
             }}>
               <h2 style={{ marginBottom: '0.5rem', color: '#2d3748', textAlign: 'center' }}>
-                Step 5: Register Signature
+                Register Signature
               </h2>
               <p style={{ marginBottom: '1rem', color: '#718096', textAlign: 'center' }}>
                 Submit your cryptographic signature to the exchange to register it for the trade.
@@ -807,7 +831,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
           </div>
         )}
 
-        {/* Step 6: Token Fund */}
+        {/* Token Fund */}
         {currentStep === 'deliver' && (
           <div className="form-section" style={{ width: '100%' }}>
             <div style={{ 
@@ -818,7 +842,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               width: '100%'
             }}>
               <h2 style={{ marginBottom: '0.5rem', color: '#2d3748', textAlign: 'center' }}>
-                Step 6: Execute Token Fund
+                Execute Token Fund
               </h2>
               <p style={{ marginBottom: '1rem', color: '#718096', textAlign: 'center' }}>
                 Execute either takerDeliver (with Permit2 signatures) or makerDeliver (simple trade ID) to fulfill the trade.
@@ -865,7 +889,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
           </div>
         )}
 
-        {/* Step 7: Completion Summary */}
+        {/* Completion Summary */}
         {currentStep === 'complete' && (
           <div className="form-section">
             <div style={{ 
@@ -875,17 +899,21 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               textAlign: 'center',
               width: '100%'
             }}>
-              <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🎉</div>
+              <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🎊</div>
               <h2 style={{ marginBottom: '1rem', color: '#38a169' }}>
                 Workflow Complete!
               </h2>
-              <p style={{ marginBottom: '2rem', color: '#4a5568', fontSize: '1.1rem' }}>
+              <p style={{ marginBottom: '1rem', color: '#4a5568', fontSize: '1.1rem' }}>
                 You have successfully completed the full trading workflow:
                 <br />
-                ✅ Created quote
+                ✅ {flowType === 'taker' ? 'Created quote' : 'Retrieved trades'}
                 <br />
-                ✅ Created trade
-                <br />
+                {flowType === 'taker' && (
+                  <>
+                    ✅ Created trade
+                    <br />
+                  </>
+                )}
                 ✅ Retrieved presign data
                 <br />
                 ✅ Signed typed data
@@ -894,6 +922,36 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
                 <br />
                 ✅ Executed token delivery
               </p>
+
+              {/* Transaction ID Display */}
+              {workflowData.deliveryResponse && workflowData.deliveryResponse.transactionHash && (
+                <div style={{
+                  backgroundColor: '#f0fff4',
+                  border: '1px solid #9ae6b4',
+                  borderRadius: '8px',
+                  padding: '1rem',
+                  marginBottom: '2rem',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>🎉</div>
+                  <h3 style={{ margin: '0 0 0.5rem 0', color: '#38a169' }}>Transaction Successful!</h3>
+                  <p style={{ margin: '0 0 0.5rem 0', color: '#4a5568', fontSize: '0.9rem' }}>
+                    Transaction ID:
+                  </p>
+                  <div style={{
+                    backgroundColor: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '4px',
+                    padding: '0.5rem',
+                    fontFamily: 'monospace',
+                    fontSize: '0.85rem',
+                    color: '#2d3748',
+                    wordBreak: 'break-all'
+                  }}>
+                    {workflowData.deliveryResponse.transactionHash}
+                  </div>
+                </div>
+              )}
 
               {/* Summary Cards Grid */}
               <div style={{ 

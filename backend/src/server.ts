@@ -104,6 +104,91 @@ app.post('/api/signatures', async (req, res) => {
   }
 });
 
+// POST /v1/exchange/signatures/funding/presign - Get typed data for Permit2
+app.post('/api/signatures/funding/presign', async (req, res) => {
+  try {
+    const { environment, apiKey, contractTradeIds, traderType, fundingMode } = req.body;
+    
+    // Validate required fields
+    if (!apiKey) {
+      return res.status(400).json({
+        error: 'apiKey is required'
+      });
+    }
+    
+    if (!contractTradeIds || !Array.isArray(contractTradeIds) || contractTradeIds.length === 0) {
+      return res.status(400).json({
+        error: 'contractTradeIds must be a non-empty array'
+      });
+    }
+    
+    if (!traderType || !['taker', 'maker'].includes(traderType)) {
+      return res.status(400).json({
+        error: 'traderType must be either "taker" or "maker"'
+      });
+    }
+    
+    if (!fundingMode || !['gross', 'net'].includes(fundingMode)) {
+      return res.status(400).json({
+        error: 'fundingMode must be either "gross" or "net"'
+      });
+    }
+    
+    console.log('=== Circle Presign API Request ===');
+    console.log('Environment:', environment);
+    console.log('Contract Trade IDs:', contractTradeIds);
+    console.log('Trader Type:', traderType);
+    console.log('Funding Mode:', fundingMode);
+    console.log('==================================');
+    
+    const baseUrl = getBaseUrl(environment);
+    
+    const requestBody = {
+      contractTradeIds,
+      traderType,
+      fundingMode
+    };
+    
+    const response = await axios.post(
+      `${baseUrl}/v1/exchange/cps/signatures/funding/presign`,
+      requestBody,
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    
+    console.log('=== Circle Presign API Response ===');
+    console.log('Status:', response.status);
+    console.log('Data:', JSON.stringify(response.data, null, 2));
+    console.log('===================================');
+    
+    res.json(response.data);
+  } catch (error: any) {
+    console.error('Circle Presign API Error:', error);
+    
+    let errorMessage = 'Unknown error occurred';
+    let statusCode = 500;
+    
+    if (error.response) {
+      console.error('Error response data:', error.response.data);
+      statusCode = error.response.status || 500;
+      errorMessage = error.response.data?.message || error.response.data?.error || error.message;
+    } else if (error.request) {
+      errorMessage = 'No response from Circle API. Please check your network connection.';
+    } else {
+      errorMessage = error.message || 'Request failed to send';
+    }
+    
+    res.status(statusCode).json({
+      error: errorMessage,
+      details: error.response?.data || null
+    });
+  }
+});
+
 // GET /v1/exchange/cps/trades
 app.get('/api/trades', async (req, res) => {
   try {
@@ -479,8 +564,7 @@ app.post('/api/recordTrade', async (req, res) => {
     }
 
     // Validate makerDetails structure
-    if (makerDetails.fee === undefined || makerDetails.nonce === undefined || 
-        makerDetails.deadline === undefined) {
+    if (makerDetails.fee === undefined || makerDetails.nonce === undefined || makerDetails.deadline === undefined) {
       return res.status(400).json({
         error: 'Invalid makerDetails structure. Must include fee, nonce, and deadline'
       });
@@ -3498,6 +3582,660 @@ app.post('/api/web3/makerBatchDeliver', async (req, res) => {
       error: errorMessage,
       details: err.message,
       method: 'web3.makerBatchDeliver'
+    });
+  }
+});
+
+// POST /api/makerNetDeliver - Execute makerNetDeliver function on FxEscrow contract using Circle SDK
+app.post('/api/makerNetDeliver', async (req, res) => {
+  try {
+    const {
+      walletApiKey,
+      entitySecret,
+      walletId,
+      refId,
+      contractAddress,
+      tradeIds,
+      permit,
+      signature
+    } = req.body;
+
+    // Validate required fields
+    if (!walletApiKey || !entitySecret || !walletId || !contractAddress || !tradeIds || !permit || !signature) {
+      return res.status(400).json({
+        error: 'walletApiKey, entitySecret, walletId, contractAddress, tradeIds, permit, and signature are required'
+      });
+    }
+
+    // Validate tradeIds is an array
+    if (!Array.isArray(tradeIds) || tradeIds.length === 0) {
+      return res.status(400).json({
+        error: 'tradeIds must be a non-empty array of trade IDs'
+      });
+    }
+
+    // Convert trade IDs to numbers and validate
+    const tradeIdNumbers = tradeIds.map((id: any) => {
+      const numId = typeof id === 'string' ? parseInt(id) : id;
+      if (isNaN(numId) || numId < 0) {
+        throw new Error(`Invalid trade ID: ${id}`);
+      }
+      return numId;
+    });
+
+    // Validate permit structure (required for makerNetDeliver)
+    if (!permit.permitted || !Array.isArray(permit.permitted) || !permit.nonce || !permit.deadline) {
+      return res.status(400).json({
+        error: 'permit must include permitted (array), nonce, and deadline fields'
+      });
+    }
+
+
+    // Validate each permitted token
+    for (let i = 0; i < permit.permitted.length; i++) {
+      const p = permit.permitted[i];
+      if (!p.token || !p.amount) {
+        return res.status(400).json({
+          error: `permit.permitted[${i}] must include token and amount fields`
+        });
+      }
+    }
+
+    // Validate nonce and deadline can be parsed as integers
+    const parsedNonce = parseInt(permit.nonce);
+    const parsedDeadline = parseInt(permit.deadline);
+    if (isNaN(parsedNonce) || isNaN(parsedDeadline)) {
+      return res.status(400).json({
+        error: 'permit nonce and deadline must be valid integers'
+      });
+    }
+
+    console.log('=== Circle SDK MakerNetDeliver Request ===');
+    console.log('Wallet ID:', walletId);
+    console.log('Contract Address:', contractAddress);
+    console.log('Trade IDs:', tradeIdNumbers);
+    console.log('TokenPermissions count:', permit.permitted.length);
+    console.log('Permitted tokens:');
+    permit.permitted.forEach((p: any, i: number) => {
+      console.log(`  [${i}] Token: ${p.token}, Amount: ${p.amount}`);
+    });
+    console.log('Permit nonce:', permit.nonce);
+    console.log('Permit deadline:', permit.deadline);
+    console.log('Signature:', signature);
+    console.log('==========================================');
+
+    const circleClient = initiateDeveloperControlledWalletsClient({
+      apiKey: walletApiKey,
+      entitySecret: entitySecret
+    });
+
+    // Prepare the ABI function signature for makerNetDeliver
+    const abiFunctionSignature = "makerNetDeliver(uint256[],((address,uint256)[],uint256,uint256),bytes)";
+
+    // Prepare the ABI parameters array with PermitBatchTransferFrom struct
+    const abiParameters = [
+      tradeIdNumbers, // uint256[] ids
+      [ // PermitBatchTransferFrom struct
+        permit.permitted.map((p: any) => [p.token, p.amount]), // TokenPermissions[] permitted
+        permit.nonce, // uint256 nonce
+        permit.deadline // uint256 deadline
+      ],
+      signature // bytes signature
+    ];
+
+    console.log('ABI Function Signature:', abiFunctionSignature);
+    try {
+      console.log('ABI Parameters:', JSON.stringify(abiParameters, null, 2));
+    } catch (jsonError) {
+      console.log('ABI Parameters (could not stringify):');
+      console.log('- Trade IDs:', abiParameters[0]);
+      console.log('- Permit structure length:', abiParameters[1]?.length);
+      console.log('- Signature length:', abiParameters[2]?.length);
+    }
+
+    const contractExecutionRequest = {
+      walletId: walletId,
+      contractAddress: contractAddress,
+      abiFunctionSignature: abiFunctionSignature,
+      abiParameters: abiParameters,
+      ...(refId && { refId: refId }), // Only include refId if provided
+      fee: {
+        type: 'level',
+        config: {
+          feeLevel: 'MEDIUM'
+        }
+      }
+    };
+
+    console.log('=== Contract Execution Request ===');
+    try {
+      console.log('Request:', JSON.stringify(contractExecutionRequest, null, 2));
+    } catch (jsonError) {
+      console.log('Request (could not stringify, showing properties):');
+      console.log('- walletId:', contractExecutionRequest.walletId);
+      console.log('- contractAddress:', contractExecutionRequest.contractAddress);
+      console.log('- abiFunctionSignature:', contractExecutionRequest.abiFunctionSignature);
+      console.log('- abiParameters length:', contractExecutionRequest.abiParameters?.length);
+      console.log('- refId:', contractExecutionRequest.refId);
+      console.log('- fee:', contractExecutionRequest.fee);
+    }
+    console.log('==================================');
+
+    // Execute the makerNetDeliver function
+    console.log('About to call Circle SDK createContractExecutionTransaction...');
+    let response;
+    try {
+      response = await circleClient.createContractExecutionTransaction(contractExecutionRequest);
+      console.log('Circle SDK call completed successfully');
+    } catch (sdkError: any) {
+      console.error('Circle SDK call failed:', sdkError.message);
+      console.error('SDK Error stack:', sdkError.stack);
+      console.error('SDK Error name:', sdkError.name);
+      console.error('SDK Error message:', sdkError.message);
+      if (sdkError.response) {
+        console.error('SDK Error response status:', sdkError.response.status);
+        console.error('SDK Error response data:', sdkError.response.data);
+      }
+      throw sdkError; // Re-throw to be caught by outer catch
+    }
+
+    console.log('=== Circle SDK MakerNetDeliver Response ===');
+    console.log('Response status:', response?.status);
+    console.log('Response data exists:', !!response?.data);
+    if (response?.data) {
+      try {
+        console.log('Response Data:', JSON.stringify(response.data, null, 2));
+      } catch (jsonError) {
+        console.log('Response Data (could not stringify):', response.data);
+      }
+    } else {
+      console.log('Response Data: undefined');
+    }
+    console.log('===========================================');
+
+    // Check if response and response.data exist before accessing
+    if (!response) {
+      throw new Error('No response received from Circle SDK');
+    }
+    
+    if (!response.data) {
+      throw new Error('Response data is undefined from Circle SDK');
+    }
+
+    res.json(response.data);
+
+  } catch (error: any) {
+    console.error('Circle SDK MakerNetDeliver Error:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
+    
+    // Log error properties safely without circular references
+    const errorInfo = {
+      name: error.name,
+      message: error.message,
+      code: error.code,
+      status: error.status,
+      response: error.response ? {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data
+      } : undefined
+    };
+    console.error('Error details:', JSON.stringify(errorInfo, null, 2));
+    
+    let errorMessage = 'Unknown error occurred';
+    if (error.response) {
+      console.error('Error response data:', error.response.data);
+      errorMessage = error.response.data?.message || error.response.data?.error || `HTTP ${error.response.status}`;
+    } else if (error.request) {
+      errorMessage = 'No response from Circle API. Please check your network connection.';
+    } else {
+      errorMessage = error.message || 'Request failed to send';
+    }
+
+    res.status(500).json({
+      error: errorMessage,
+      details: error.response?.data || error.message,
+      method: 'circle.makerNetDeliver'
+    });
+  }
+});
+
+// POST /api/web3/makerNetDeliver - Execute makerNetDeliver function using Web3js
+app.post('/api/web3/makerNetDeliver', async (req, res) => {
+  try {
+    const {
+      privateKey,
+      contractAddress,
+      rpcUrl,
+      gasLimit,
+      gasPrice,
+      tradeIds,
+      permit,
+      signature
+    } = req.body;
+
+    // Validate required fields
+    if (!privateKey || !contractAddress || !tradeIds || !permit || !signature) {
+      return res.status(400).json({
+        error: 'privateKey, contractAddress, tradeIds, permit, and signature are required'
+      });
+    }
+
+    // Validate tradeIds is an array
+    if (!Array.isArray(tradeIds) || tradeIds.length === 0) {
+      return res.status(400).json({
+        error: 'tradeIds must be a non-empty array of trade IDs'
+      });
+    }
+
+    // Convert trade IDs to numbers and validate
+    const tradeIdNumbers = tradeIds.map((id: any) => {
+      const numId = typeof id === 'string' ? parseInt(id) : id;
+      if (isNaN(numId) || numId < 0) {
+        throw new Error(`Invalid trade ID: ${id}`);
+      }
+      return numId;
+    });
+
+    // Validate permit structure (required for makerNetDeliver)
+    if (!permit.permitted || !Array.isArray(permit.permitted) || !permit.nonce || !permit.deadline) {
+      return res.status(400).json({
+        error: 'permit must include permitted (array), nonce, and deadline fields'
+      });
+    }
+
+    console.log('=== Web3js MakerNetDeliver Request ===');
+    console.log('Contract Address:', contractAddress);
+    console.log('Trade IDs:', tradeIdNumbers);
+    console.log('Permit:', JSON.stringify(permit, null, 2));
+    console.log('Signature:', signature);
+    console.log('======================================');
+
+    // Initialize Web3 with the provided or default RPC URL
+    const web3RpcUrl = rpcUrl || 'https://ethereum-sepolia-rpc.publicnode.com';
+    const web3 = new Web3(web3RpcUrl);
+    console.log('Using RPC URL:', web3RpcUrl);
+
+    // Create account from private key
+    const account = web3.eth.accounts.privateKeyToAccount(privateKey);
+    console.log('Using wallet address:', account.address);
+
+    // Contract ABI - just the makerNetDeliver function
+    const contractABI = [
+      {
+        "type": "function",
+        "name": "makerNetDeliver",
+        "inputs": [
+          {
+            "name": "ids",
+            "type": "uint256[]",
+            "internalType": "uint256[]"
+          },
+          {
+            "name": "permit",
+            "type": "tuple",
+            "internalType": "struct IPermit2.PermitBatchTransferFrom",
+            "components": [
+              {
+                "name": "permitted",
+                "type": "tuple[]",
+                "internalType": "struct IPermit2.TokenPermissions[]",
+                "components": [
+                  {
+                    "name": "token",
+                    "type": "address",
+                    "internalType": "address"
+                  },
+                  {
+                    "name": "amount",
+                    "type": "uint256",
+                    "internalType": "uint256"
+                  }
+                ]
+              },
+              {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+              },
+              {
+                "name": "deadline",
+                "type": "uint256",
+                "internalType": "uint256"
+              }
+            ]
+          },
+          {
+            "name": "signature",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      }
+    ];
+
+    // Create contract instance
+    const contract = new web3.eth.Contract(contractABI, contractAddress);
+
+    // Prepare permit struct for the contract call
+    const permitStruct = {
+      permitted: permit.permitted.map((p: any) => ({
+        token: p.token,
+        amount: p.amount.toString()
+      })),
+      nonce: permit.nonce.toString(),
+      deadline: permit.deadline.toString()
+    };
+
+    console.log('Permit struct for contract:', JSON.stringify(permitStruct, null, 2));
+
+    // Estimate gas if not provided
+    let estimatedGas = gasLimit;
+    if (!estimatedGas) {
+      try {
+        estimatedGas = await contract.methods.makerNetDeliver(
+          tradeIdNumbers,
+          permitStruct,
+          signature
+        ).estimateGas({ from: account.address });
+        console.log('Estimated Gas:', estimatedGas);
+      } catch (gasError: any) {
+        console.error('Gas estimation failed:', gasError);
+        return res.status(400).json({
+          error: 'Gas estimation failed. The transaction may revert.',
+          details: gasError.message
+        });
+      }
+    }
+
+    // Get gas price if not provided
+    let txGasPrice = gasPrice;
+    if (!txGasPrice) {
+      txGasPrice = await web3.eth.getGasPrice();
+      console.log('Current Gas Price:', web3.utils.fromWei(txGasPrice, 'gwei'), 'gwei');
+    }
+
+    // Execute the transaction
+    const txData = contract.methods.makerNetDeliver(
+      tradeIdNumbers,
+      permitStruct,
+      signature
+    );
+
+    const tx = {
+      from: account.address,
+      to: contractAddress,
+      data: txData.encodeABI(),
+      gas: estimatedGas.toString(),
+      gasPrice: txGasPrice.toString()
+    };
+
+    console.log('Transaction object:', tx);
+
+    const signedTx = await web3.eth.accounts.signTransaction(tx, privateKey);
+    const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction!);
+
+    console.log('=== Web3js MakerNetDeliver Response ===');
+    console.log('Transaction Receipt:', receipt);
+    console.log('======================================');
+
+    res.json({
+      success: true,
+      transactionHash: receipt.transactionHash,
+      blockNumber: receipt.blockNumber,
+      gasUsed: receipt.gasUsed.toString(),
+      from: account.address,
+      to: contractAddress,
+      method: 'makerNetDeliver',
+      parameters: {
+        tradeIds: tradeIdNumbers,
+        permit: permit,
+        signature: signature
+      },
+      receipt: receipt
+    });
+
+  } catch (err: any) {
+    console.error('Web3js MakerNetDeliver Error:', err);
+    
+    let errorMessage = 'An unknown error occurred';
+    if (err.message) {
+      if (err.message.includes('revert')) {
+        errorMessage = 'Transaction reverted. Please check your parameters and contract state.';
+      } else if (err.message.includes('insufficient funds')) {
+        errorMessage = 'Insufficient funds for gas fees.';
+      } else {
+        errorMessage = err.message;
+      }
+    }
+
+    res.status(500).json({
+      error: errorMessage,
+      details: err.message,
+      method: 'web3.makerNetDeliver'
+    });
+  }
+});
+
+// POST /api/getTokenBalance - Get token balances for a wallet using Circle SDK
+app.post('/api/getTokenBalance', async (req, res) => {
+  try {
+    const { walletApiKey, walletId, environment } = req.body;
+
+    // Validate required fields
+    if (!walletApiKey || !walletId) {
+      return res.status(400).json({
+        error: 'Both walletApiKey and walletId are required'
+      });
+    }
+
+    console.log('=== Get Token Balance Request ===');
+    console.log('Wallet ID:', walletId);
+    console.log('Environment:', environment);
+    console.log('================================');
+
+    // Initialize the Circle SDK client (entitySecret not required for read operations)
+    const circleClient = initiateDeveloperControlledWalletsClient({
+      apiKey: walletApiKey,
+      entitySecret: '' // Empty for read-only operations
+    });
+
+    // Get wallet details and token balances
+    const [walletResponse, tokenBalanceResponse] = await Promise.all([
+      circleClient.getWallet({ id: walletId }),
+      circleClient.getWalletTokenBalance({ id: walletId })
+    ]);
+
+    console.log('=== Wallet Details ===');
+    console.log('Wallet:', JSON.stringify(walletResponse.data, null, 2));
+    console.log('=== Token Balances ===');
+    console.log('Token Balances:', JSON.stringify(tokenBalanceResponse.data, null, 2));
+    console.log('=====================');
+
+    const wallet = walletResponse.data as any;
+    const tokenBalances = tokenBalanceResponse.data as any;
+
+    // Format the response with actual token balances
+    const response = {
+      success: true,
+      wallet: {
+        id: wallet.id,
+        address: wallet.address,
+        blockchain: wallet.blockchain,
+        accountType: wallet.accountType,
+        state: wallet.state
+      },
+      tokens: tokenBalances.tokenBalances || [],
+      totalTokens: tokenBalances.tokenBalances?.length || 0,
+      timestamp: new Date().toISOString()
+    };
+
+    res.json(response);
+
+  } catch (error: any) {
+    console.error('Get Token Balance Error:', error);
+    
+    // Handle specific Circle SDK errors
+    if (error.response) {
+      console.error('Circle SDK Error Response:', error.response.data);
+      return res.status(error.response.status || 500).json({
+        error: error.response.data?.message || error.message || 'Circle SDK request failed',
+        details: error.response.data || null,
+        method: 'Circle SDK getTokenBalance'
+      });
+    }
+
+    res.status(500).json({
+      error: error.message || 'Failed to get token balance',
+      method: 'Circle SDK getTokenBalance'
+    });
+  }
+});
+
+// POST /api/getMakerNetBalances - Get maker net balances using Circle SDK
+app.post('/api/getMakerNetBalances', async (req, res) => {
+  try {
+    const {
+      walletApiKey,
+      entitySecret,
+      walletId,
+      contractAddress,
+      tradeIds
+    } = req.body;
+
+    // Validate required fields
+    if (!contractAddress || !tradeIds) {
+      return res.status(400).json({
+        error: 'contractAddress and tradeIds are required'
+      });
+    }
+
+    // Validate and parse trade IDs
+    const tradeIdNumbers = tradeIds.map((id: any) => {
+      const numId = parseInt(id);
+      if (isNaN(numId) || numId < 0) {
+        throw new Error(`Invalid trade ID: ${id}`);
+      }
+      return numId;
+    });
+
+    console.log('=== Web3js GetMakerNetBalances Request ===');
+    console.log('Contract Address:', contractAddress);
+    console.log('Trade IDs:', tradeIdNumbers);
+    console.log('===========================================');
+
+    // Initialize Web3
+    const web3 = new Web3(process.env.RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com');
+
+    // Contract ABI - just the getMakerNetBalances function
+    const contractABI = [
+      {
+        "type": "function",
+        "name": "getMakerNetBalances",
+        "inputs": [
+          {
+            "name": "ids",
+            "type": "uint256[]",
+            "internalType": "uint256[]"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "balances",
+            "type": "tuple[]",
+            "internalType": "struct Balance[]",
+            "components": [
+              {
+                "name": "token",
+                "type": "address",
+                "internalType": "address"
+              },
+              {
+                "name": "amount",
+                "type": "int256",
+                "internalType": "int256"
+              }
+            ]
+          }
+        ],
+        "stateMutability": "view"
+      }
+    ];
+
+    // Create contract instance
+    const contract = new web3.eth.Contract(contractABI, contractAddress);
+
+    console.log('Calling getMakerNetBalances with trade IDs:', tradeIdNumbers);
+
+    // Call the view function
+    let balances;
+    try {
+      balances = await contract.methods.getMakerNetBalances(tradeIdNumbers).call();
+      console.log('Contract call completed successfully');
+    } catch (contractError: any) {
+      console.error('Contract call failed:', contractError);
+      throw new Error(`Contract call failed: ${contractError.message}`);
+    }
+
+    console.log('=== Web3js GetMakerNetBalances Response ===');
+    console.log('Raw balances:', balances);
+    console.log('Number of balance entries:', balances?.length || 0);
+
+    // Format the response to match the expected structure
+    const formattedBalances = Array.isArray(balances) ? balances.map((balance: any, index: number) => {
+      console.log(`Balance ${index}:`, {
+        token: balance.token,
+        amount: balance.amount.toString()
+      });
+      return {
+        token: balance.token,
+        amount: balance.amount.toString() // Convert BigInt to string for JSON serialization
+      };
+    }) : [];
+
+    console.log('===============================================');
+
+    const responseData = {
+      success: true,
+      contractAddress: contractAddress,
+      tradeIds: tradeIdNumbers,
+      balances: formattedBalances,
+      method: 'web3.getMakerNetBalances'
+    };
+
+    res.json(responseData);
+
+  } catch (error: any) {
+    console.error('Web3js GetMakerNetBalances Error:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
+    
+    // Log error properties safely without circular references
+    const errorInfo = {
+      name: error.name,
+      message: error.message,
+      code: error.code,
+      reason: error.reason,
+      data: error.data
+    };
+    console.error('Error details:', JSON.stringify(errorInfo, null, 2));
+    
+    let errorMessage = 'Unknown error occurred';
+    if (error.reason) {
+      errorMessage = `Contract call failed: ${error.reason}`;
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+
+    res.status(500).json({
+      error: errorMessage,
+      details: error.message,
+      method: 'web3.getMakerNetBalances'
     });
   }
 });

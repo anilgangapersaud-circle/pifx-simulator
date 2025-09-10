@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AppState } from '../App';
+import { AppState, getWalletIdForFlow } from '../App';
 import axios from 'axios';
 
 interface ContractExecutionFormProps {
@@ -10,7 +10,7 @@ interface ContractExecutionFormProps {
 const ContractExecutionForm: React.FC<ContractExecutionFormProps> = ({ state, updateState }) => {
   const [formData, setFormData] = useState({
     contractAddress: '0x51F8418D9c64E67c243DCb8f10771bA83bcd9Aa8',
-    walletId: state.walletId || '',
+    walletId: getWalletIdForFlow(state, 'taker'), // Default to taker for standalone usage
     refId: '',
     taker: '',
     maker: '',
@@ -43,13 +43,14 @@ const ContractExecutionForm: React.FC<ContractExecutionFormProps> = ({ state, up
 
   // Auto-populate wallet ID when it changes
   React.useEffect(() => {
-    if (state.walletId !== formData.walletId) {
+    const appropriateWalletId = getWalletIdForFlow(state, 'taker'); // Default to taker for standalone usage
+    if (appropriateWalletId !== formData.walletId) {
       setFormData(prev => ({
         ...prev,
-        walletId: state.walletId
+        walletId: appropriateWalletId
       }));
     }
-  }, [state.walletId, formData.walletId]);
+  }, [state.walletId, state.makerWalletId, state.takerWalletId, formData.walletId]);
 
   const handleInputChange = (field: string, value: string) => {
     if (field.startsWith('consideration.')) {
