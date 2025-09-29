@@ -13,7 +13,7 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
     <div className="page-container" style={{ maxWidth: 'none', width: '98%' }}>
       <div className="page-header">
         <h1>Taker Deliver</h1>
-        <p>Execute token delivery as the taker using Permit2 and Circle's Programmable Wallets</p>
+        <p>Execute token delivery as the taker using Circle's CPS Fund API with Permit2 signatures</p>
       </div>
 
       {/* Integration Info Banner */}
@@ -29,8 +29,8 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
           <h3 style={{ margin: 0, color: '#319795' }}>Taker Deliver Function</h3>
         </div>
         <p style={{ margin: '0.5rem 0', color: '#2c5aa0' }}>
-          This page uses Circle's <code>createContractExecutionTransaction</code> API to execute the <code>takerDeliver</code> function 
-          on the FxEscrow smart contract. Features a 3-step workflow: Permit2 approval, permit signing, and execution.
+          This page uses Circle's <code>CPS Fund API</code> to execute funding operations instead of contract calls. 
+          Features a 3-step workflow: Typed data retrieval, permit signing, and API execution.
         </p>
         <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', flexWrap: 'wrap' }}>
           <div style={{ 
@@ -67,7 +67,7 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
             border: '1px solid #38a169',
             fontSize: '0.85rem'
           }}>
-            ✅ 3-step guided workflow
+            ✅ Circle CPS Fund API
           </div>
         </div>
       </div>
@@ -90,12 +90,12 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
           borderRadius: '6px',
           border: '1px solid #319795'
         }}>
-          <div style={{ fontWeight: 'bold', color: '#319795' }}>Contract Function</div>
+          <div style={{ fontWeight: 'bold', color: '#319795' }}>Circle CPS Fund API</div>
           <div style={{ fontSize: '0.9rem', color: '#2c5aa0', marginTop: '0.25rem' }}>
-            <code>takerDeliver(uint256, PermitTransferFrom, bytes)</code>
+            <code>POST /v1/exchange/cps/fund</code>
           </div>
           <div style={{ fontSize: '0.8rem', color: '#718096', marginTop: '0.25rem' }}>
-            Deliver tokens using Permit2
+            Direct API funding execution
           </div>
         </div>
         
@@ -165,41 +165,41 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
 
       {/* Prerequisites check */}
       <div style={{
-        backgroundColor: state.walletApiKey && state.entitySecret && state.walletId ? '#f0fff4' : '#fffaf0',
-        border: `1px solid ${state.walletApiKey && state.entitySecret && state.walletId ? '#38a169' : '#ed8936'}`,
+        backgroundColor: state.apiKey && state.environment ? '#f0fff4' : '#fffaf0',
+        border: `1px solid ${state.apiKey && state.environment ? '#38a169' : '#ed8936'}`,
         borderRadius: '6px',
         padding: '1rem',
         marginBottom: '2rem'
       }}>
         <h3 style={{ 
-          color: state.walletApiKey && state.entitySecret && state.walletId ? '#38a169' : '#ed8936', 
+          color: state.apiKey && state.environment ? '#38a169' : '#ed8936', 
           marginTop: 0 
         }}>
-          {state.walletApiKey && state.entitySecret && state.walletId ? '✅' : '⚠️'} Prerequisites Check
+          {state.apiKey && state.environment ? '✅' : '⚠️'} Prerequisites Check
         </h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span style={{ color: state.walletApiKey ? '#38a169' : '#e53e3e' }}>
-              {state.walletApiKey ? '✅' : '❌'}
+            <span style={{ color: state.apiKey ? '#38a169' : '#e53e3e' }}>
+              {state.apiKey ? '✅' : '❌'}
             </span>
-            <span>Wallet API Key</span>
+            <span>API Key</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span style={{ color: state.entitySecret ? '#38a169' : '#e53e3e' }}>
-              {state.entitySecret ? '✅' : '❌'}
+            <span style={{ color: state.environment ? '#38a169' : '#e53e3e' }}>
+              {state.environment ? '✅' : '❌'}
             </span>
-            <span>Entity Secret</span>
+            <span>Environment</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span style={{ color: state.walletId ? '#38a169' : '#e53e3e' }}>
-              {state.walletId ? '✅' : '❌'}
+            <span style={{ color: state.walletApiKey && state.entitySecret ? '#38a169' : '#e53e3e' }}>
+              {state.walletApiKey && state.entitySecret ? '✅' : '❌'}
             </span>
-            <span>Wallet ID</span>
+            <span>Circle SDK (for signing)</span>
           </div>
         </div>
-        {!(state.walletApiKey && state.entitySecret && state.walletId) && (
+        {!(state.apiKey && state.environment) && (
           <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.9rem', color: '#8b5738' }}>
-            💡 <strong>Missing credentials:</strong> Please configure your Circle credentials in Settings before proceeding.
+            💡 <strong>Missing credentials:</strong> Please configure your API Key and Environment in Settings before proceeding.
           </p>
         )}
       </div>
@@ -222,16 +222,16 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
         </summary>
         <div style={{ marginTop: '1rem' }}>
           <p><strong>Endpoint:</strong> <code>POST /api/takerDeliver</code></p>
-          <p><strong>Circle SDK Method:</strong> <code>createContractExecutionTransaction</code></p>
-          <p><strong>Contract Function:</strong> <code>takerDeliver(uint256,((address,uint256),address,uint256,uint256),bytes)</code></p>
-          <p><strong>Fee Level:</strong> <code>MEDIUM</code> (automatically configured)</p>
+          <p><strong>Circle API:</strong> <code>POST /v1/exchange/cps/fund</code></p>
+          <p><strong>Method:</strong> Direct API call instead of contract execution</p>
+          <p><strong>Parameters:</strong> permit2, signature, type, fundingMode</p>
           
           <div style={{ marginTop: '1rem' }}>
-            <strong>Note:</strong> <em>The frontend signs PermitWitnessTransferFrom (with witness field) but the contract ABI expects PermitTransferFrom (4 fields only). The witness data is used for signing validation but not passed to the contract.</em>
+            <strong>Note:</strong> <em>This implementation uses Circle's CPS fund endpoint directly instead of executing smart contract functions. The permit2 data from typed data is passed along with the signature to the API.</em>
           </div>
           
           <div style={{ marginTop: '1rem' }}>
-            <strong>Function Parameters:</strong>
+            <strong>API Request Parameters:</strong>
             <ul style={{ 
               backgroundColor: '#f1f3f4', 
               padding: '0.75rem', 
@@ -239,22 +239,22 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
               fontSize: '0.9rem',
               margin: '0.5rem 0'
             }}>
-              <li><strong>id:</strong> Trade ID (uint256)</li>
-              <li><strong>permit:</strong> PermitTransferFrom struct containing:
+              <li><strong>permit2:</strong> The permit2 message from typed data containing:
                 <ul style={{ marginLeft: '1rem', marginTop: '0.25rem' }}>
-                  <li><strong>permitted.token:</strong> Token contract address</li>
-                  <li><strong>permitted.amount:</strong> Amount to transfer</li>
+                  <li><strong>permitted:</strong> Token and amount information</li>
                   <li><strong>spender:</strong> Contract address that will spend tokens</li>
                   <li><strong>nonce:</strong> Unique nonce for replay protection</li>
                   <li><strong>deadline:</strong> Expiration timestamp</li>
                 </ul>
               </li>
-              <li><strong>signature:</strong> Permit signature (bytes)</li>
+              <li><strong>signature:</strong> String signature from signing the typed data</li>
+              <li><strong>type:</strong> "taker" or "maker" depending on selection</li>
+              <li><strong>fundingMode:</strong> "gross" for taker, "net" if maker chose net</li>
             </ul>
           </div>
 
           <div style={{ marginTop: '1rem' }}>
-            <strong>Example ABI Parameters:</strong>
+            <strong>Example API Request Body:</strong>
             <pre style={{ 
               backgroundColor: '#f1f3f4', 
               padding: '0.75rem', 
@@ -262,19 +262,20 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
               fontSize: '0.8rem',
               overflow: 'auto'
             }}>
-{`[
-  123456,  // tradeId
-  [
-    [
-      "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238",  // token
-      "1500300000"  // amount
-    ],
-    "0x51F8418D9c64E67c243DCb8f10771bA83bcd9Aa8",  // spender (contract)
-    "1",  // nonce
-    "1740000000"  // deadline
-  ],
-  "0x1234567890abcdef..."  // signature
-]`}
+{`{
+  "permit2": {
+    "permitted": {
+      "token": "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238",
+      "amount": "1500300000"
+    },
+    "spender": "0x51F8418D9c64E67c243DCb8f10771bA83bcd9Aa8",
+    "nonce": "1",
+    "deadline": "1740000000"
+  },
+  "signature": "0x1234567890abcdef...",
+  "type": "taker",
+  "fundingMode": "gross"
+}`}
             </pre>
           </div>
         </div>
@@ -294,10 +295,10 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
         border: '1px solid #319795',
         textAlign: 'center'
       }}>
-        <h4 style={{ margin: '0 0 0.5rem 0', color: '#319795' }}>🚀 Advanced Token Transfer</h4>
+        <h4 style={{ margin: '0 0 0.5rem 0', color: '#319795' }}>🚀 Circle CPS Fund Integration</h4>
         <p style={{ margin: 0, color: '#2c5aa0', fontSize: '0.9rem' }}>
-          This integration demonstrates advanced DeFi patterns using Permit2 for efficient token transfers. 
-          Perfect for applications requiring seamless user experiences with minimal gas overhead.
+          This integration demonstrates direct API-based funding using Circle's CPS fund endpoint. 
+          Replaces contract execution with API calls for streamlined funding operations.
         </p>
       </div>
     </div>

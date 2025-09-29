@@ -5,6 +5,8 @@ import dotenv from 'dotenv';
 import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-controlled-wallets';
 import { Web3 } from 'web3';
 import { ethers } from 'ethers';
+import * as forge from 'node-forge';
+import { v4 as uuidv4 } from 'uuid';
 
 dotenv.config();
 
@@ -18,12 +20,125 @@ app.use(express.json());
 // Environment URLs
 const ENVIRONMENTS = {
   smokebox: 'https://api-smokebox.circle.com',
-  sandbox: 'https://api-sandbox.circle.com'
+  sandbox: 'https://api-sandbox.circle.com',
+  staging: 'https://api-staging.circle.com'
 };
 
 // Helper function to get base URL
 const getBaseUrl = (env: string): string => {
   return ENVIRONMENTS[env as keyof typeof ENVIRONMENTS] || ENVIRONMENTS.smokebox;
+};
+
+// Function to generate entity secret ciphertext manually using node-forge
+async function generateEntitySecretCiphertextManually(apiKey: string, entitySecret: string): Promise<string> {
+  try {
+    console.log('🔄 Generating entity secret ciphertext with RSA-OAEP encryption...');
+    
+    // Step 1: Use the hardcoded public key (no API call needed)
+    const publicKeyPem = `-----BEGIN PUBLIC KEY-----
+MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAyV7p/zStlMgMSol1cLhc
+eQv+tCXljEOFN34r484vAMrah8mXRLBXoAwMJEWgGKP2utMdhaEPRi3KoreAw7xS
+XF0e1v+I90zgBcSvxd8TX3d4XPjPxFI2Ko5t2Tc0HeEas57xyrAGFdDWhgJVgBvA
+SIrhsswhP1pnj3kAHtS9pNcWFVO1ymYbWypjHpX8niDIziw1DkA2b7tD1N8I5k9s
+gKdDsrNlWWscZxzpRmGICmW6G/rP+pLl2bGigJlKW3hDxVFXDsQbzD2L/qzWbc74
+iyX9UcdGCFh5/Wfplo+pvdn74vJAqBt5DXJ10wdBX8DNaFTLMd+C1Y1/hb0coRtB
+WklJuckrQAJ3mMoh4uYc7J5bL0gf5a1TGo9dBCibTsj1SA6hSb/TIYuaDW8QGZpU
+4/FJHRgHjd/tdhXwyrGeRypxNtOQsu3fvD0mlSyBWZi4mvCkiVT9peUVVcyQGa9W
+9rF6EVkx7icIoPvciiOUO79mr/6UB7U99uX22U1ksGQIplxCcoGbVK87FqeM+bBu
+Ls/YDuUNbYCcQGU5fVAjItKFIxxa5RunSlV/gfzz7Vtqu931vMDsRyrJ05HzDZ/J
+snULX2cSoBqlLeD03YpMiFZ5wPPU7rbbMwWq3WhDjJL1IlGB4n6F7Ultu2VgASo4
+LoOYfEiKkkueIix1Kdwvuu0CAwEAAQ==
+-----END PUBLIC KEY-----`;
+    
+    // Step 2: Encrypt the entity secret using RSA-OAEP
+    const entitySecretBytes = forge.util.hexToBytes(entitySecret);
+    const publicKey = forge.pki.publicKeyFromPem(publicKeyPem);
+    
+    const encryptedData = publicKey.encrypt(entitySecretBytes, "RSA-OAEP", {
+      md: forge.md.sha256.create(),
+      mgf1: {
+        md: forge.md.sha256.create(),
+      },
+    });
+    
+    // Step 3: Encode to base64
+    const ciphertext = forge.util.encode64(encryptedData);
+    console.log('✅ Generated entity secret ciphertext (length:', ciphertext.length, 'chars)');
+    
+    return ciphertext;
+  } catch (error: any) {
+    console.error('❌ Error generating entity secret ciphertext manually:', error.message);
+    throw error;
+  }
+}
+
+// Helper function for Circle Wallet API calls
+const callCircleWalletAPI = async (endpoint: string, method: 'GET' | 'POST', apiKey: string, entitySecret?: string, data?: any, walletId?: string) => {
+  const baseUrl = 'https://api-staging.circle.com';
+  const url = walletId ? `${baseUrl}${endpoint.replace('{id}', walletId)}` : `${baseUrl}${endpoint}`;
+  
+  const headers: any = {
+    'Authorization': `Bearer ${apiKey}`,
+    'Content-Type': 'application/json'
+  };
+
+  const config: any = {
+    method,
+    url,
+    headers
+  };
+
+  if (method === 'POST' && data) {
+    // Add entitySecretCiphertext for write operations
+    if (entitySecret) {
+      data.entitySecretCiphertext = await generateEntitySecretCiphertextManually(apiKey, entitySecret);
+    }
+    config.data = data;
+  }
+
+  return await axios(config);
+};
+
+// Helper function for Circle Contract Execution API calls
+const callCircleContractExecutionAPI = async (apiKey: string, entitySecret: string, contractExecutionData: any) => {
+  const baseUrl = 'https://api-staging.circle.com';
+  const endpoint = '/v1/w3s/developer/transactions/contractExecution';
+  
+  console.log('🔄 Calling Circle Contract Execution API...');
+  
+  const headers = {
+    'Authorization': `Bearer ${apiKey}`,
+    'Content-Type': 'application/json'
+  };
+
+  // Generate UUID for idempotency key if not provided
+  const idempotencyKey = contractExecutionData.idempotencyKey || uuidv4();
+
+  // Add required fields and entitySecretCiphertext to the request data
+  const requestData = {
+    ...contractExecutionData,
+    idempotencyKey,
+    entitySecretCiphertext: await generateEntitySecretCiphertextManually(apiKey, entitySecret)
+  };
+
+  // Set fee level to MEDIUM as recommended
+  requestData.feeLevel = 'MEDIUM';
+  
+  // Clean up any conflicting gas parameters
+  delete requestData.fee;
+  delete requestData.gasPrice;
+  delete requestData.gasLimit;
+  delete requestData.maxFeePerGas;
+  delete requestData.maxPriorityFeePerGas;
+  
+  console.log('Using fee level: MEDIUM');
+
+  console.log('Request data:', JSON.stringify(requestData, null, 2));
+
+  const response = await axios.post(`${baseUrl}${endpoint}`, requestData, { headers });
+  
+  console.log('✅ Circle Contract Execution API call completed');
+  return response;
 };
 
 // POST /v1/exchange/cps/quotes
@@ -145,7 +260,7 @@ app.post('/api/signatures/funding/presign', async (req, res) => {
     
     const requestBody = {
       contractTradeIds,
-      traderType,
+      type: traderType,
       fundingMode
     };
     
@@ -318,12 +433,6 @@ app.post('/api/wallet/sign/typedData', async (req, res) => {
       messageKeys: Object.keys(typedData.message)
     });
 
-    // Initialize the Circle SDK client
-    const circleClient = initiateDeveloperControlledWalletsClient({
-      apiKey: walletApiKey,
-      entitySecret: entitySecret
-    });
-
     // Enhanced request body logging
     console.log('=== Sign Typed Data Request ===');
     console.log('Timestamp:', new Date().toISOString());
@@ -336,10 +445,9 @@ app.post('/api/wallet/sign/typedData', async (req, res) => {
     console.log(JSON.stringify(requestBody, null, 2));
     console.log('================================');
 
-    // Prepare typedData for Circle SDK (remove EIP712Domain if present)
+    // Prepare typedData for Circle API (remove EIP712Domain if present)
     let typedDataForCircle = { ...requestBody.typedData };
   
-
     // Validate the typedData can be stringified
     let dataString;
     try {
@@ -370,15 +478,20 @@ app.post('/api/wallet/sign/typedData', async (req, res) => {
     console.log('Full request:', JSON.stringify(circleRequest, null, 2));
     console.log('==================================');
 
-    // Call the signTypedData method with the transformed request
-    // The Circle SDK should handle entitySecretCiphertext generation automatically
-    const response = await circleClient.signTypedData(circleRequest);
+    // Call the Circle API directly instead of using SDK
+    const response = await callCircleWalletAPI(
+      '/v1/w3s/developer/sign/typedData',
+      'POST',
+      walletApiKey,
+      entitySecret,
+      circleRequest
+    );
     
     // Log the successful response
-    console.log('=== Circle SDK Response ===');
+    console.log('=== Circle API Response ===');
     console.log('Response Status:', response.status || 'Unknown');
     console.log('Response Data:', JSON.stringify(response.data, null, 2));
-    console.log('===========================');
+    console.log('============================');
     
     res.json(response.data);
   } catch (error: any) {
@@ -1144,12 +1257,6 @@ app.post('/api/approvePermit2', async (req, res) => {
     console.log('NOTE: Permit2 approvals do not require token ownership');
     console.log('============================================');
 
-    // Initialize the Circle SDK client
-    const circleClient = initiateDeveloperControlledWalletsClient({
-      apiKey: walletApiKey,
-      entitySecret: entitySecret
-    });
-
     // Prepare the ABI function signature for ERC20 approve
     const abiFunctionSignature = "approve(address,uint256)";
 
@@ -1169,29 +1276,25 @@ app.post('/api/approvePermit2', async (req, res) => {
     console.log('- amount (max uint256):', abiParameters[1]);
     console.log('=============================================');
 
-    // Create the contract execution transaction
-    const response = await circleClient.createContractExecutionTransaction({
+    // Create the contract execution transaction using direct API call
+    const contractExecutionData = {
       walletId: walletId,
       contractAddress: tokenAddress,
       abiFunctionSignature: abiFunctionSignature,
       abiParameters: abiParameters,
-      fee: {
-        config: {
-          feeLevel: 'MEDIUM' as const
-        },
-        type: 'level' as const
-      },
       ...(refId && { refId })
-    });
+    };
+
+    const response = await callCircleContractExecutionAPI(walletApiKey, entitySecret, contractExecutionData);
 
     console.log('✅ Permit2 Approval Transaction Created Successfully');
-    console.log('Transaction ID:', response.data?.id);
-    console.log('Transaction State:', response.data?.state);
+    console.log('Transaction ID:', response.data?.data?.id || response.data?.id);
+    console.log('Transaction State:', response.data?.data?.state || response.data?.state);
 
     // Return the response
     res.json({
       ...response.data,
-      method: 'Circle SDK Permit2 Approval',
+      method: 'Circle API Permit2 Approval',
       tokenAddress,
       permit2Address,
       approvedAmount: 'unlimited'
@@ -1200,9 +1303,9 @@ app.post('/api/approvePermit2', async (req, res) => {
   } catch (error: any) {
     console.error('❌ Permit2 Approval Error:', error);
 
-    // Handle specific Circle SDK errors
+    // Handle specific Circle API errors
     if (error.response) {
-      console.error('Circle SDK Error Response:', error.response.data);
+      console.error('Circle API Error Response:', error.response.data);
       
       // Log detailed error information for asset amount issues
       const errorMessage = error.response.data?.message || error.response.data?.error || '';
@@ -1213,7 +1316,7 @@ app.post('/api/approvePermit2', async (req, res) => {
         console.error('- Error Message:', errorMessage);
         console.error('- Full Error Data:', JSON.stringify(error.response.data, null, 2));
         console.error('- This error occurs during permit2 approval which should not require token ownership');
-        console.error('- Consider checking Circle SDK configuration or token contract implementation');
+        console.error('- Consider checking Circle API configuration or token contract implementation');
       }
       
       return res.status(error.response.status || 500).json({
@@ -1444,166 +1547,87 @@ app.post('/api/web3/approvePermit2', async (req, res) => {
   }
 });
 
-// POST /api/takerDeliver - Execute takerDeliver function on FxEscrow contract using Circle SDK
+// POST /api/takerDeliver - Call Circle's CPS fund endpoint
 app.post('/api/takerDeliver', async (req, res) => {
   try {
     const {
-      walletApiKey,
-      entitySecret,
-      walletId,
-      contractAddress,
-      refId,
-      tradeId,
-      permit,
-      signature
+      environment,
+      apiKey,
+      permit2,
+      signature,
+      type,
+      fundingMode
     } = req.body;
 
-    // Validate required Circle SDK fields
-    if (!walletApiKey || !entitySecret) {
+    // Validate required fields
+    if (!apiKey || !permit2 || !signature || !type || !fundingMode) {
       return res.status(400).json({
-        error: 'Both walletApiKey and entitySecret are required for Circle SDK'
+        error: 'Missing required fields: apiKey, permit2, signature, type, fundingMode are required'
       });
     }
 
-    if (!walletId) {
+    // Validate type parameter
+    if (!['taker', 'maker'].includes(type)) {
       return res.status(400).json({
-        error: 'walletId is required'
+        error: 'type must be either "taker" or "maker"'
       });
     }
 
-    if (!contractAddress) {
+    // Validate fundingMode parameter
+    if (!['gross', 'net'].includes(fundingMode)) {
       return res.status(400).json({
-        error: 'contractAddress is required'
+        error: 'fundingMode must be either "gross" or "net"'
       });
     }
 
-    // Validate trade data
-    if (tradeId === undefined || tradeId === null) {
-      return res.status(400).json({
-        error: 'tradeId is required'
-      });
-    }
-
-    // Validate tradeId is a positive integer
-    const tradeIdNumber = parseInt(tradeId);
-    if (isNaN(tradeIdNumber) || tradeIdNumber < 0) {
-      return res.status(400).json({
-        error: 'tradeId must be a valid non-negative integer'
-      });
-    }
-
-    // Validate permit structure
-    if (!permit || !permit.permitted || !permit.nonce || !permit.deadline) {
-      return res.status(400).json({
-        error: 'permit must include permitted, nonce, and deadline fields'
-      });
-    }
-
-    if (!permit.permitted.token || !permit.permitted.amount) {
-      return res.status(400).json({
-        error: 'permit.permitted must include token and amount fields'
-      });
-    }
-
-    if (!signature) {
-      return res.status(400).json({
-        error: 'signature is required'
-      });
-    }
-
-    console.log('=== Circle SDK TakerDeliver Request ===');
+    console.log('=== Circle CPS Fund API Request ===');
     console.log('Timestamp:', new Date().toISOString());
-    console.log('Wallet ID:', walletId);
-    console.log('Contract Address:', contractAddress);
-    console.log('Reference ID:', refId || 'Not provided');
-    console.log('Trade ID:', tradeIdNumber);
-    console.log('Permit:', JSON.stringify(permit, null, 2));
-    console.log('Signature:', signature);
-    console.log('======================================');
+    console.log('Environment:', environment);
+    console.log('Type:', type);
+    console.log('Funding Mode:', fundingMode);
+    console.log('Permit2 Data:', JSON.stringify(permit2, null, 2));
+    console.log('Signature Length:', signature.length);
+    console.log('===================================');
 
-    // Initialize the Circle SDK client
-    const circleClient = initiateDeveloperControlledWalletsClient({
-      apiKey: walletApiKey,
-      entitySecret: entitySecret
-    });
-
-    // Prepare the ABI function signature for takerDeliver with PermitTransferFrom (4 fields)
-    const abiFunctionSignature = "takerDeliver(uint256,((address,uint256),uint256,uint256),bytes)";
-
-    // Convert values to strings for Circle SDK (it expects string representation of large numbers)
-    const ensureString = (value: any) => {
-      if (typeof value === 'string') {
-        return value;
-      }
-      return String(value);
-    };
-
-    // Prepare the ABI parameters array with PermitTransferFrom struct (without witness)
-    const abiParameters = [
-      tradeIdNumber, // uint256 tradeId
-      [ // PermitTransferFrom struct (4 fields only)
-        [ // TokenPermissions (permitted)
-          permit.permitted.token, // address token
-          permit.permitted.amount // uint256 amount
-        ],
-        permit.nonce, // uint256 nonce
-        permit.deadline // uint256 deadline (no witness in contract ABI)
-      ],
-      signature // bytes signature
-    ];
-
-    console.log('=== TakerDeliver Function Parameters ===');
-    console.log('Function Signature:', abiFunctionSignature);
-    console.log('Parameter Types:');
-    console.log('- tradeId:', typeof abiParameters[0], '(value:', abiParameters[0], ')');
-    console.log('- permit.permitted.token:', typeof abiParameters[1][0][0], '(value:', abiParameters[1][0][0], ')');
-    console.log('- permit.permitted.amount:', typeof abiParameters[1][0][1], '(value:', abiParameters[1][0][1], ')');
-    console.log('- permit.spender:', typeof abiParameters[1][1], '(value:', abiParameters[1][1], ')');
-    console.log('- permit.nonce:', typeof abiParameters[1][2], '(value:', abiParameters[1][2], ')');
-    console.log('- permit.deadline:', typeof abiParameters[1][3], '(value:', abiParameters[1][3], ')');
-    console.log('- signature:', typeof abiParameters[2], '(length:', abiParameters[2].length, ')');
-    console.log('Full Parameters:', JSON.stringify(abiParameters, null, 2));
-    console.log('Note: Frontend signs PermitWitnessTransferFrom but contract expects PermitTransferFrom');
-    console.log('=======================================');
-
-    // Create the contract execution request
-    const contractExecutionRequest = {
-      contractAddress: "0x1f91886C7028986aD885ffCee0e40b75C9cd5aC1",
-      walletId: walletId,
-      abiFunctionSignature: abiFunctionSignature,
-      abiParameters: abiParameters,
-      fee: {
-        config: {
-          feeLevel: 'MEDIUM' as const
-        },
-        type: 'level' as const
-      },
-      ...(refId && { refId: refId }) // Only include refId if provided
-    };
-
-    console.log('=== Final TakerDeliver Contract Execution Request ===');
-    console.log('Request payload:', JSON.stringify(contractExecutionRequest, null, 2));
-    console.log('RefId included:', !!refId);
-    console.log('===================================================');
+    const baseUrl = getBaseUrl(environment);
     
-    console.log('Executing takerDeliver function via Circle SDK...');
+    // Prepare the request body for Circle's CPS fund endpoint
+    const requestBody = {
+      permit2,
+      signature,
+      type,
+      fundingMode
+    };
 
-    // Execute the contract function using Circle SDK
-    const response = await circleClient.createContractExecutionTransaction(contractExecutionRequest);
+    console.log('=== Circle CPS Fund Request Body ===');
+    console.log('Request Body:', JSON.stringify(requestBody, null, 2));
+    console.log('====================================');
 
-    console.log('=== Circle SDK TakerDeliver Response ===');
-    console.log('Response Status:', response.status || 'Unknown');
-    console.log('Response Data:', JSON.stringify(response.data, null, 2));
-    console.log('=======================================');
+    // Call Circle's CPS fund endpoint
+    const response = await axios.post(
+      `${baseUrl}/v1/exchange/cps/fund`,
+      requestBody,
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
 
-    // Return the Circle SDK response
+    console.log('=== Circle CPS Fund API Response ===');
+    console.log('Status:', response.status);
+    console.log('Data:', JSON.stringify(response.data, null, 2));
+    console.log('====================================');
+
+    // Return the Circle API response
     res.json(response.data);
 
   } catch (error: any) {
-    console.error('Circle SDK TakerDeliver Function Error:', error);
+    console.error('Circle CPS Fund API Error:', error);
     
     let statusCode = 500;
-    let errorMessage = 'Internal server error occurred while executing takerDeliver function';
+    let errorMessage = 'Internal server error occurred while calling Circle CPS fund endpoint';
     let errorDetails = null;
 
     if (error.response) {
@@ -1612,26 +1636,20 @@ app.post('/api/takerDeliver', async (req, res) => {
       errorDetails = error.response.data;
       
       if (error.response.status === 401) {
-        errorMessage = 'Authentication failed. Please check your API key and entity secret.';
+        errorMessage = 'Authentication failed. Please check your API key.';
       } else if (error.response.status === 400) {
-        errorMessage = error.response.data?.message || 'Invalid request data. Please check your parameters.';
-      } else if (error.response.status === 404) {
-        errorMessage = 'Wallet not found. Please verify the wallet ID is correct.';
+        errorMessage = error.response.data?.message || 'Bad request. Please check your request parameters.';
       } else if (error.response.status === 403) {
-        errorMessage = 'Access forbidden. Please check your permissions and entity secret.';
+        errorMessage = 'Access denied. Please check your permissions.';
+      } else if (error.response.status === 404) {
+        errorMessage = 'Endpoint not found. Please check the API endpoint.';
       } else {
-        errorMessage = error.response.data?.message || `Circle API error: ${error.response.status}`;
+        errorMessage = error.response.data?.message || `Circle API error (${error.response.status})`;
       }
-    } else if (error.code === 'ECONNREFUSED') {
-      errorMessage = 'Cannot connect to Circle API. Please check your internet connection.';
-    } else if (error.message.includes('API key')) {
-      statusCode = 401;
-      errorMessage = 'Invalid API key format or missing authentication credentials.';
-    } else if (error.message.includes('entity secret')) {
-      statusCode = 401;
-      errorMessage = 'Invalid entity secret. Please check your entity secret configuration.';
+    } else if (error.request) {
+      errorMessage = 'No response from Circle API. Please check your network connection.';
     } else {
-      errorMessage = error.message || 'Unknown error occurred during takerDeliver function execution';
+      errorMessage = error.message || 'Unknown error occurred during Circle CPS fund API call';
       errorDetails = error.stack;
     }
 
@@ -1639,7 +1657,391 @@ app.post('/api/takerDeliver', async (req, res) => {
       error: errorMessage,
       details: errorDetails,
       timestamp: new Date().toISOString(),
-      method: 'Circle SDK createContractExecution - takerDeliver'
+      method: 'Circle CPS Fund API'
+    });
+  }
+});
+
+// POST /api/takerBatchDeliver - Call Circle's CPS fund endpoint for batch taker operations
+app.post('/api/takerBatchDeliver', async (req, res) => {
+  try {
+    const {
+      environment,
+      apiKey,
+      permit2,
+      signature,
+      type,
+      fundingMode
+    } = req.body;
+
+    // Validate required fields
+    if (!apiKey || !permit2 || !signature || !type || !fundingMode) {
+      return res.status(400).json({
+        error: 'Missing required fields: apiKey, permit2, signature, type, fundingMode are required'
+      });
+    }
+
+    // For batch operations, ensure type is taker
+    if (type !== 'taker') {
+      return res.status(400).json({
+        error: 'Batch taker deliver requires type to be "taker"'
+      });
+    }
+
+    // Taker batch always uses gross
+    if (fundingMode !== 'gross') {
+      return res.status(400).json({
+        error: 'Taker batch deliver requires fundingMode to be "gross"'
+      });
+    }
+
+    console.log('=== Circle CPS Fund API Request (Batch Taker) ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Environment:', environment);
+    console.log('Type:', type);
+    console.log('Funding Mode:', fundingMode);
+    console.log('Permit2 Data:', JSON.stringify(permit2, null, 2));
+    console.log('Signature Length:', signature.length);
+    console.log('===============================================');
+
+    const baseUrl = getBaseUrl(environment);
+    
+    const requestBody = {
+      permit2,
+      signature,
+      type,
+      fundingMode
+    };
+
+    const response = await axios.post(
+      `${baseUrl}/v1/exchange/cps/fund`,
+      requestBody,
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    console.log('=== Circle CPS Fund API Response (Batch Taker) ===');
+    console.log('Status:', response.status);
+    console.log('Data:', JSON.stringify(response.data, null, 2));
+    console.log('=================================================');
+
+    res.json(response.data);
+
+  } catch (error: any) {
+    console.error('Circle CPS Fund API Error (Batch Taker):', error);
+    
+    let statusCode = 500;
+    let errorMessage = 'Internal server error occurred while calling Circle CPS fund endpoint';
+    let errorDetails = null;
+
+    if (error.response) {
+      statusCode = error.response.status;
+      errorDetails = error.response.data;
+      errorMessage = error.response.data?.message || `Circle API error (${error.response.status})`;
+    } else if (error.request) {
+      errorMessage = 'No response from Circle API. Please check your network connection.';
+    } else {
+      errorMessage = error.message || 'Unknown error occurred during Circle CPS fund API call';
+      errorDetails = error.stack;
+    }
+
+    res.status(statusCode).json({
+      error: errorMessage,
+      details: errorDetails,
+      timestamp: new Date().toISOString(),
+      method: 'Circle CPS Fund API (Batch Taker)'
+    });
+  }
+});
+
+// POST /api/makerDeliver - Call Circle's CPS fund endpoint for single maker operations
+app.post('/api/makerDeliver', async (req, res) => {
+  try {
+    const {
+      environment,
+      apiKey,
+      permit2,
+      signature,
+      type,
+      fundingMode
+    } = req.body;
+
+    // Validate required fields
+    if (!apiKey || !permit2 || !signature || !type || !fundingMode) {
+      return res.status(400).json({
+        error: 'Missing required fields: apiKey, permit2, signature, type, fundingMode are required'
+      });
+    }
+
+    // For single maker operations, ensure type is maker
+    if (type !== 'maker') {
+      return res.status(400).json({
+        error: 'Maker deliver requires type to be "maker"'
+      });
+    }
+
+    // Single maker only supports gross
+    if (fundingMode !== 'gross') {
+      return res.status(400).json({
+        error: 'Single maker deliver requires fundingMode to be "gross"'
+      });
+    }
+
+    console.log('=== Circle CPS Fund API Request (Single Maker) ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Environment:', environment);
+    console.log('Type:', type);
+    console.log('Funding Mode:', fundingMode);
+    console.log('Permit2 Data:', JSON.stringify(permit2, null, 2));
+    console.log('Signature Length:', signature.length);
+    console.log('=================================================');
+
+    const baseUrl = getBaseUrl(environment);
+    
+    const requestBody = {
+      permit2,
+      signature,
+      type,
+      fundingMode
+    };
+
+    const response = await axios.post(
+      `${baseUrl}/v1/exchange/cps/fund`,
+      requestBody,
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    console.log('=== Circle CPS Fund API Response (Single Maker) ===');
+    console.log('Status:', response.status);
+    console.log('Data:', JSON.stringify(response.data, null, 2));
+    console.log('===================================================');
+
+    res.json(response.data);
+
+  } catch (error: any) {
+    console.error('Circle CPS Fund API Error (Single Maker):', error);
+    
+    let statusCode = 500;
+    let errorMessage = 'Internal server error occurred while calling Circle CPS fund endpoint';
+    let errorDetails = null;
+
+    if (error.response) {
+      statusCode = error.response.status;
+      errorDetails = error.response.data;
+      errorMessage = error.response.data?.message || `Circle API error (${error.response.status})`;
+    } else if (error.request) {
+      errorMessage = 'No response from Circle API. Please check your network connection.';
+    } else {
+      errorMessage = error.message || 'Unknown error occurred during Circle CPS fund API call';
+      errorDetails = error.stack;
+    }
+
+    res.status(statusCode).json({
+      error: errorMessage,
+      details: errorDetails,
+      timestamp: new Date().toISOString(),
+      method: 'Circle CPS Fund API (Single Maker)'
+    });
+  }
+});
+
+// POST /api/makerBatchDeliver - Call Circle's CPS fund endpoint for batch maker operations
+app.post('/api/makerBatchDeliver', async (req, res) => {
+  try {
+    const {
+      environment,
+      apiKey,
+      permit2,
+      signature,
+      type,
+      fundingMode
+    } = req.body;
+
+    // Validate required fields
+    if (!apiKey || !permit2 || !signature || !type || !fundingMode) {
+      return res.status(400).json({
+        error: 'Missing required fields: apiKey, permit2, signature, type, fundingMode are required'
+      });
+    }
+
+    // For batch maker operations, ensure type is maker
+    if (type !== 'maker') {
+      return res.status(400).json({
+        error: 'Batch maker deliver requires type to be "maker"'
+      });
+    }
+
+    // Batch maker supports both gross and net
+    if (!['gross', 'net'].includes(fundingMode)) {
+      return res.status(400).json({
+        error: 'Batch maker deliver requires fundingMode to be "gross" or "net"'
+      });
+    }
+
+    console.log('=== Circle CPS Fund API Request (Batch Maker) ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Environment:', environment);
+    console.log('Type:', type);
+    console.log('Funding Mode:', fundingMode);
+    console.log('Permit2 Data:', JSON.stringify(permit2, null, 2));
+    console.log('Signature Length:', signature.length);
+    console.log('================================================');
+
+    const baseUrl = getBaseUrl(environment);
+    
+    const requestBody = {
+      permit2,
+      signature,
+      type,
+      fundingMode
+    };
+
+    const response = await axios.post(
+      `${baseUrl}/v1/exchange/cps/fund`,
+      requestBody,
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    console.log('=== Circle CPS Fund API Response (Batch Maker) ===');
+    console.log('Status:', response.status);
+    console.log('Data:', JSON.stringify(response.data, null, 2));
+    console.log('==================================================');
+
+    res.json(response.data);
+
+  } catch (error: any) {
+    console.error('Circle CPS Fund API Error (Batch Maker):', error);
+    
+    let statusCode = 500;
+    let errorMessage = 'Internal server error occurred while calling Circle CPS fund endpoint';
+    let errorDetails = null;
+
+    if (error.response) {
+      statusCode = error.response.status;
+      errorDetails = error.response.data;
+      errorMessage = error.response.data?.message || `Circle API error (${error.response.status})`;
+    } else if (error.request) {
+      errorMessage = 'No response from Circle API. Please check your network connection.';
+    } else {
+      errorMessage = error.message || 'Unknown error occurred during Circle CPS fund API call';
+      errorDetails = error.stack;
+    }
+
+    res.status(statusCode).json({
+      error: errorMessage,
+      details: errorDetails,
+      timestamp: new Date().toISOString(),
+      method: 'Circle CPS Fund API (Batch Maker)'
+    });
+  }
+});
+
+// POST /api/makerNetDeliver - Call Circle's CPS fund endpoint for net maker operations
+app.post('/api/makerNetDeliver', async (req, res) => {
+  try {
+    const {
+      environment,
+      apiKey,
+      permit2,
+      signature,
+      type,
+      fundingMode
+    } = req.body;
+
+    // Validate required fields
+    if (!apiKey || !permit2 || !signature || !type || !fundingMode) {
+      return res.status(400).json({
+        error: 'Missing required fields: apiKey, permit2, signature, type, fundingMode are required'
+      });
+    }
+
+    // For net maker operations, ensure type is maker
+    if (type !== 'maker') {
+      return res.status(400).json({
+        error: 'Net maker deliver requires type to be "maker"'
+      });
+    }
+
+    // Net maker requires net funding mode
+    if (fundingMode !== 'net') {
+      return res.status(400).json({
+        error: 'Net maker deliver requires fundingMode to be "net"'
+      });
+    }
+
+    console.log('=== Circle CPS Fund API Request (Net Maker) ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Environment:', environment);
+    console.log('Type:', type);
+    console.log('Funding Mode:', fundingMode);
+    console.log('Permit2 Data:', JSON.stringify(permit2, null, 2));
+    console.log('Signature Length:', signature.length);
+    console.log('===============================================');
+
+    const baseUrl = getBaseUrl(environment);
+    
+    const requestBody = {
+      permit2,
+      signature,
+      type,
+      fundingMode
+    };
+
+    const response = await axios.post(
+      `${baseUrl}/v1/exchange/cps/fund`,
+      requestBody,
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    console.log('=== Circle CPS Fund API Response (Net Maker) ===');
+    console.log('Status:', response.status);
+    console.log('Data:', JSON.stringify(response.data, null, 2));
+    console.log('===============================================');
+
+    res.json(response.data);
+
+  } catch (error: any) {
+    console.error('Circle CPS Fund API Error (Net Maker):', error);
+    
+    let statusCode = 500;
+    let errorMessage = 'Internal server error occurred while calling Circle CPS fund endpoint';
+    let errorDetails = null;
+
+    if (error.response) {
+      statusCode = error.response.status;
+      errorDetails = error.response.data;
+      errorMessage = error.response.data?.message || `Circle API error (${error.response.status})`;
+    } else if (error.request) {
+      errorMessage = 'No response from Circle API. Please check your network connection.';
+    } else {
+      errorMessage = error.message || 'Unknown error occurred during Circle CPS fund API call';
+      errorDetails = error.stack;
+    }
+
+    res.status(statusCode).json({
+      error: errorMessage,
+      details: errorDetails,
+      timestamp: new Date().toISOString(),
+      method: 'Circle CPS Fund API (Net Maker)'
     });
   }
 });
@@ -1667,14 +2069,15 @@ app.get('/api/wallet/info/:walletId', async (req, res) => {
     console.log('Timestamp:', new Date().toISOString());
     console.log('==========================');
 
-    // Initialize the Circle SDK client
-    const circleClient = initiateDeveloperControlledWalletsClient({
-      apiKey: walletApiKey as string,
-      entitySecret: entitySecret as string
-    });
-
-    // Get wallet details
-    const walletResponse = await circleClient.getWallet({ id: walletId });
+    // Get wallet details using direct API call
+    const walletResponse = await callCircleWalletAPI(
+      '/v1/w3s/wallets/{id}',
+      'GET',
+      walletApiKey as string,
+      undefined, // No entity secret needed for GET operations
+      undefined, // No data for GET operations
+      walletId
+    );
     
     console.log('=== Wallet Details ===');
     console.log('Response:', JSON.stringify(walletResponse.data, null, 2));
@@ -1741,14 +2144,15 @@ app.get('/api/wallet/balance/:walletId', async (req, res) => {
     console.log('Timestamp:', new Date().toISOString());
     console.log('============================');
 
-    // Initialize the Circle SDK client
-    const circleClient = initiateDeveloperControlledWalletsClient({
-      apiKey: walletApiKey as string,
-      entitySecret: entitySecret as string
-    });
-
-    // Get wallet details to get the address
-    const walletResponse = await circleClient.getWallet({ id: walletId });
+    // Get wallet details to get the address using direct API call
+    const walletResponse = await callCircleWalletAPI(
+      '/v1/w3s/wallets/{id}',
+      'GET',
+      walletApiKey as string,
+      undefined, // No entity secret needed for GET operations
+      undefined, // No data for GET operations
+      walletId
+    );
     const walletAddress = (walletResponse.data as any)?.address;
 
     if (!walletAddress) {
@@ -4038,16 +4442,24 @@ app.post('/api/getTokenBalance', async (req, res) => {
     console.log('Environment:', environment);
     console.log('================================');
 
-    // Initialize the Circle SDK client (entitySecret not required for read operations)
-    const circleClient = initiateDeveloperControlledWalletsClient({
-      apiKey: walletApiKey,
-      entitySecret: '' // Empty for read-only operations
-    });
-
-    // Get wallet details and token balances
+    // Get wallet details and token balances using direct API calls
     const [walletResponse, tokenBalanceResponse] = await Promise.all([
-      circleClient.getWallet({ id: walletId }),
-      circleClient.getWalletTokenBalance({ id: walletId })
+      callCircleWalletAPI(
+        '/v1/w3s/wallets/{id}',
+        'GET',
+        walletApiKey,
+        undefined, // No entity secret needed for GET operations
+        undefined, // No data for GET operations
+        walletId
+      ),
+      callCircleWalletAPI(
+        '/v1/w3s/wallets/{id}/balances',
+        'GET',
+        walletApiKey,
+        undefined, // No entity secret needed for GET operations
+        undefined, // No data for GET operations
+        walletId
+      )
     ]);
 
     console.log('=== Wallet Details ===');
@@ -4059,18 +4471,19 @@ app.post('/api/getTokenBalance', async (req, res) => {
     const wallet = walletResponse.data as any;
     const tokenBalances = tokenBalanceResponse.data as any;
 
+
     // Format the response with actual token balances
     const response = {
       success: true,
       wallet: {
-        id: wallet.id,
-        address: wallet.address,
-        blockchain: wallet.blockchain,
-        accountType: wallet.accountType,
-        state: wallet.state
+        id: wallet.data?.wallet?.id || wallet.id,
+        address: wallet.data?.wallet?.address || wallet.address,
+        blockchain: wallet.data?.wallet?.blockchain || wallet.blockchain,
+        accountType: wallet.data?.wallet?.accountType || wallet.accountType,
+        state: wallet.data?.wallet?.state || wallet.state
       },
-      tokens: tokenBalances.tokenBalances || [],
-      totalTokens: tokenBalances.tokenBalances?.length || 0,
+      tokens: tokenBalances.data?.tokenBalances || tokenBalances.tokenBalances || [],
+      totalTokens: tokenBalances.data?.tokenBalances?.length || tokenBalances.tokenBalances?.length || 0,
       timestamp: new Date().toISOString()
     };
 
@@ -4079,19 +4492,19 @@ app.post('/api/getTokenBalance', async (req, res) => {
   } catch (error: any) {
     console.error('Get Token Balance Error:', error);
     
-    // Handle specific Circle SDK errors
+    // Handle specific Circle API errors
     if (error.response) {
-      console.error('Circle SDK Error Response:', error.response.data);
+      console.error('Circle API Error Response:', error.response.data);
       return res.status(error.response.status || 500).json({
-        error: error.response.data?.message || error.message || 'Circle SDK request failed',
+        error: error.response.data?.message || error.message || 'Circle API request failed',
         details: error.response.data || null,
-        method: 'Circle SDK getTokenBalance'
+        method: 'Circle API getTokenBalance'
       });
     }
 
     res.status(500).json({
       error: error.message || 'Failed to get token balance',
-      method: 'Circle SDK getTokenBalance'
+      method: 'Circle API getTokenBalance'
     });
   }
 });

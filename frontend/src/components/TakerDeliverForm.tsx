@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AppState, getWalletIdForFlow } from '../App';
 import axios from 'axios';
 
@@ -9,6 +10,7 @@ interface TakerDeliverFormProps {
 }
 
 const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState, flowType }) => {
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     contractAddress: '0x1f91886C7028986aD885ffCee0e40b75C9cd5aC1', // FxEscrow proxy contract
     walletId: getWalletIdForFlow(state, flowType || 'taker'),
@@ -34,8 +36,9 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
   const [fundingMode, setFundingMode] = useState<'gross' | 'net'>('gross');
   const [editableTypedData, setEditableTypedData] = useState<string>('');
   const [typedDataError, setTypedDataError] = useState<string | null>(null);
-  
-  // Removed permit2 approval state as we only get typed data now
+  const [permit2ApprovalLoading, setPermit2ApprovalLoading] = useState(false);
+  const [permit2ApprovalResponse, setPermit2ApprovalResponse] = useState<any>(null);
+  const [permit2ApprovalError, setPermit2ApprovalError] = useState<string | null>(null);
 
   // Auto-switch to gross when taker is selected (net is only available for makers)
   React.useEffect(() => {
@@ -168,7 +171,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
 
     try {
       
-      // Use Circle SDK to sign the (possibly edited) typed data
+      // Use Circle to sign the (possibly edited) typed data
       const signingPayload = {
         walletApiKey: state.walletApiKey,
         entitySecret: state.entitySecret,
@@ -178,8 +181,8 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
 
       const result = await axios.post('http://localhost:3001/api/wallet/sign/typedData', signingPayload);
       
-      if (result.data && result.data.signature) {
-        const signature = result.data.signature;
+      if (result.data && result.data.data && result.data.data.signature) {
+        const signature = result.data.data.signature;
         
         // Update form with signature
         setFormData(prev => ({
@@ -204,6 +207,70 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       setError(errorMessage);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const approvePermit2 = async () => {
+    // Extract token address from the typed data
+    let tokenAddress = '';
+    try {
+      if (editableTypedData) {
+        const typedDataObj = JSON.parse(editableTypedData);
+        const permitData = typedDataObj?.message;
+        if (permitData?.permitted) {
+          if (Array.isArray(permitData.permitted)) {
+            // Batch mode - use first token
+            tokenAddress = permitData.permitted[0]?.token || '';
+          } else {
+            // Single mode
+            tokenAddress = permitData.permitted.token || '';
+          }
+        }
+      }
+    } catch (err) {
+      setPermit2ApprovalError('Cannot extract token address from typed data');
+      return;
+    }
+
+    if (!tokenAddress) {
+      setPermit2ApprovalError('No token address found in typed data. Get typed data first.');
+      return;
+    }
+
+    if (!state.walletApiKey || !state.entitySecret || !formData.walletId) {
+      setPermit2ApprovalError('Circle credentials (API Key, Entity Secret, Wallet ID) are required');
+      return;
+    }
+
+    setPermit2ApprovalLoading(true);
+    setPermit2ApprovalError(null);
+    setPermit2ApprovalResponse(null);
+
+    try {
+      const approvalPayload = {
+        walletApiKey: state.walletApiKey,
+        entitySecret: state.entitySecret,
+        walletId: formData.walletId,
+        tokenAddress: tokenAddress,
+        refId: `permit2-approval-${Date.now()}`
+      };
+
+      const result = await axios.post('http://localhost:3001/api/approvePermit2', approvalPayload);
+      
+      setPermit2ApprovalResponse(result.data);
+      
+    } catch (err: any) {
+      let errorMessage = 'Failed to approve Permit2';
+      if (err.response) {
+        errorMessage = err.response.data?.error || err.response.data?.message || `HTTP ${err.response.status}`;
+      } else if (err.request) {
+        errorMessage = 'No response from server. Please check your connection and ensure the backend is running.';
+      } else {
+        errorMessage = err.message || 'Unknown error occurred';
+      }
+      setPermit2ApprovalError(errorMessage);
+    } finally {
+      setPermit2ApprovalLoading(false);
     }
   };
 
@@ -370,8 +437,12 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
 
     // Validation based on signing method
     if (signingMethod === 'circle') {
-      if (!state.walletApiKey || !state.entitySecret || !formData.walletId) {
-        setError('Circle credentials (API Key, Entity Secret, Wallet ID) are required for programmable wallet execution');
+      if (!state.apiKey) {
+        setError('API Key is required for Circle CPS fund API');
+        return;
+      }
+      if (!state.environment) {
+        setError('Environment selection is required for Circle CPS fund API');
         return;
       }
     } else {
@@ -403,94 +474,64 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       const permitDataFromTypedData = typedDataObj?.message;
 
       if (signingMethod === 'circle') {
-        // Circle SDK implementation
+        // Circle CPS Fund API implementation
         if (deliverType === 'taker') {
           if (batchMode) {
-            // Batch taker deliver - use permit data directly from typed data
+            // Batch taker deliver - use Circle CPS fund API
             payload = {
-              walletApiKey: state.walletApiKey,
-              entitySecret: state.entitySecret,
-              contractAddress: formData.contractAddress,
-              walletId: formData.walletId,
-              refId: formData.refId || undefined,
-              tradeIds: tradeIds,
-              permit: {
-                permitted: permitDataFromTypedData.permitted,
-                nonce: permitDataFromTypedData.nonce,
-                deadline: permitDataFromTypedData.deadline
-              },
-              signature: formData.signature
+              environment: state.environment,
+              apiKey: state.apiKey,
+              permit2: permitDataFromTypedData,
+              signature: formData.signature,
+              type: 'taker',
+              fundingMode: 'gross' // Taker always uses gross
             };
             endpoint = 'http://localhost:3001/api/takerBatchDeliver';
           } else {
-            // Single taker deliver - use permit data directly from typed data
+            // Single taker deliver - use Circle CPS fund API
             payload = {
-              walletApiKey: state.walletApiKey,
-              entitySecret: state.entitySecret,
-              contractAddress: formData.contractAddress,
-              walletId: formData.walletId,
-              refId: formData.refId || undefined,
-              tradeId: singleTradeId,
-              permit: {
-                permitted: permitDataFromTypedData.permitted,
-                nonce: permitDataFromTypedData.nonce,
-                deadline: permitDataFromTypedData.deadline
-              },
-              signature: formData.signature
+              environment: state.environment,
+              apiKey: state.apiKey,
+              permit2: permitDataFromTypedData,
+              signature: formData.signature,
+              type: 'taker',
+              fundingMode: 'gross' // Taker always uses gross
             };
             endpoint = 'http://localhost:3001/api/takerDeliver';
           }
         } else {
-          // Maker deliver logic
+          // Maker deliver logic - use Circle CPS fund API
           if (fundingMode === 'net') {
-            // Net delivery always uses batch format (multiple trade IDs) - use permit data directly from typed data
+            // Net delivery always uses batch format (multiple trade IDs) - use Circle CPS fund API
             payload = {
-              walletApiKey: state.walletApiKey,
-              entitySecret: state.entitySecret,
-              contractAddress: formData.contractAddress,
-              walletId: formData.walletId,
-              refId: formData.refId || undefined,
-              tradeIds: tradeIds,
-              permit: {
-                permitted: permitDataFromTypedData.permitted,
-                nonce: permitDataFromTypedData.nonce,
-                deadline: permitDataFromTypedData.deadline
-              },
-              signature: formData.signature
+              environment: state.environment,
+              apiKey: state.apiKey,
+              permit2: permitDataFromTypedData,
+              signature: formData.signature,
+              type: 'maker',
+              fundingMode: 'net'
             };
             endpoint = 'http://localhost:3001/api/makerNetDeliver';
           } else if (batchMode) {
-            // Batch maker deliver (gross) - use permit data directly from typed data
+            // Batch maker deliver (gross) - use Circle CPS fund API
             payload = {
-              walletApiKey: state.walletApiKey,
-              entitySecret: state.entitySecret,
-              contractAddress: formData.contractAddress,
-              walletId: formData.walletId,
-              refId: formData.refId || undefined,
-              tradeIds: tradeIds,
-              permit: {
-                permitted: permitDataFromTypedData.permitted,
-                nonce: permitDataFromTypedData.nonce,
-                deadline: permitDataFromTypedData.deadline
-              },
-              signature: formData.signature
+              environment: state.environment,
+              apiKey: state.apiKey,
+              permit2: permitDataFromTypedData,
+              signature: formData.signature,
+              type: 'maker',
+              fundingMode: 'gross'
             };
             endpoint = 'http://localhost:3001/api/makerBatchDeliver';
           } else {
-            // Single maker deliver (gross) - use permit data directly from typed data
+            // Single maker deliver (gross) - use Circle CPS fund API
             payload = {
-              walletApiKey: state.walletApiKey,
-              entitySecret: state.entitySecret,
-              contractAddress: formData.contractAddress,
-              walletId: formData.walletId,
-              refId: formData.refId || undefined,
-              tradeId: singleTradeId,
-              permit: {
-                permitted: permitDataFromTypedData.permitted,
-                nonce: permitDataFromTypedData.nonce,
-                deadline: permitDataFromTypedData.deadline
-              },
-              signature: formData.signature
+              environment: state.environment,
+              apiKey: state.apiKey,
+              permit2: permitDataFromTypedData,
+              signature: formData.signature,
+              type: 'maker',
+              fundingMode: 'gross'
             };
             endpoint = 'http://localhost:3001/api/makerDeliver';
           }
@@ -597,6 +638,34 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       setResponse(result.data);
       setShowResponseDisplay(true);
 
+      // Check if the API call was successful (200 status) and navigate to complete step
+      if (result.status === 200) {
+        console.log('✅ Fund delivery API call successful');
+        
+        // Check if we're on the complete workflow page (integrated workflow)
+        const isOnWorkflowPage = window.location.pathname === '/complete-workflow' || window.location.pathname === '/';
+        
+        if (isOnWorkflowPage) {
+          // If we're on the workflow page, the workflow will handle the completion automatically
+          console.log('On workflow page - letting workflow handle completion');
+        } else {
+          // If we're on a standalone page, navigate to complete workflow
+          console.log('On standalone page - navigating to complete workflow');
+          
+          // Add success message with navigation info
+          setResponse({
+            ...result.data,
+            _navigationMessage: 'Success! Redirecting to complete workflow in 2 seconds...',
+            _navigating: true
+          });
+          
+          // Small delay to let user see the success response before navigating
+          setTimeout(() => {
+            navigate('/complete-workflow');
+          }, 2000);
+        }
+      }
+
     } catch (err: any) {
       let errorMessage = 'An unknown error occurred';
       
@@ -625,8 +694,8 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
 
   return (
     <div className="form-container" style={{ maxWidth: 'none', width: '100%', padding: '2rem 3rem' }}>
-      <h2>{deliverType === 'taker' ? 'Taker' : 'Maker'} Funding Typed Data & Signing</h2>
-      <p>Get EIP-712 typed data for Permit2 funding from Circle's API and sign it with Circle SDK. This generates the signature needed for {deliverType} funding operations.</p>
+      <h2>{deliverType === 'taker' ? 'Taker' : 'Maker'} Funding via Circle CPS API</h2>
+      <p>Get EIP-712 typed data for Permit2 funding from Circle's API, sign it with Circle, and execute funding via Circle's CPS fund endpoint. This replaces the contract execution with a direct API call.</p>
       
       {/* Deliver Type Toggle - Only show when not in workflow mode */}
       {!flowType && (
@@ -680,14 +749,26 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
 
 
 
-      {/* Info about typed data retrieval */}
+      {/* Info about Circle CPS fund API */}
       <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f0f8ff', border: '1px solid #667eea', borderRadius: '6px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-          <span style={{ fontSize: '1.2rem' }}>📋</span>
-          <span style={{ fontWeight: 'bold', color: '#667eea' }}>Typed Data Retrieval</span>
+          <span style={{ fontSize: '1.2rem' }}>🔄</span>
+          <span style={{ fontWeight: 'bold', color: '#667eea' }}>Circle CPS Fund API Integration</span>
         </div>
         <p style={{ margin: 0, fontSize: '0.9rem', color: '#4a5568' }}>
-          This form retrieves EIP-712 typed data for Permit2 funding from Circle's API. The typed data can then be used for signing in external applications.
+          This form uses Circle's CPS fund endpoint instead of contract execution. It retrieves EIP-712 typed data, signs it, and calls the fund API with permit2, signature, type, and fundingMode parameters.
+        </p>
+      </div>
+
+      {/* Permit2 Approval Info */}
+      <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#fff3cd', border: '1px solid #ffc107', borderRadius: '6px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+          <span style={{ fontSize: '1.2rem' }}>🔓</span>
+          <span style={{ fontWeight: 'bold', color: '#856404' }}>Permit2 Approval Required</span>
+        </div>
+        <p style={{ margin: 0, fontSize: '0.9rem', color: '#4a5568' }}>
+          Before using Permit2 for token transfers, you need to approve the Permit2 contract to spend your tokens. 
+          This is a one-time approval per token that allows Permit2 to transfer tokens on your behalf using signatures instead of separate approval transactions.
         </p>
       </div>
       
@@ -756,35 +837,80 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
               </div>
             )}
             
-            {/* Get Typed Data Button - Small and inline */}
+            {/* Get Typed Data and Permit2 Approval Buttons - Side by side */}
             <div style={{ marginTop: '1rem', marginBottom: '1rem' }}>
-              <button 
-                type="button" 
-                onClick={getFundingTypedData}
-                style={{ 
-                  backgroundColor: response?.success ? '#38a169' : '#667eea', 
-                  color: 'white',
-                  border: 'none',
-                  padding: '0.5rem 1rem',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '0.9rem',
-                  fontWeight: '500',
-                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-                }}
-                title="Get typed data for funding from Circle API"
-                disabled={loading || !formData.tradeIds || !state.apiKey}
-              >
-                {response?.success ? 'Retrieved' : (loading ? 'Getting...' : 'Get Typed Data')}
-              </button>
-              {(!formData.tradeIds || !state.apiKey) && (
-                <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#718096' }}>
-                  {!formData.tradeIds ? 
-                    'Enter trade IDs first' :
-                    'Configure API Key in Settings'
-                  }
-                </div>
-              )}
+              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <button 
+                  type="button" 
+                  onClick={getFundingTypedData}
+                  style={{ 
+                    backgroundColor: response?.success ? '#38a169' : '#667eea', 
+                    color: 'white',
+                    border: 'none',
+                    padding: '0.5rem 1rem',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '0.9rem',
+                    fontWeight: '500',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                  }}
+                  title="Get typed data for funding from Circle API"
+                  disabled={loading || !formData.tradeIds || !state.apiKey}
+                >
+                  {response?.success ? 'Retrieved' : (loading ? 'Getting...' : 'Get Typed Data')}
+                </button>
+                
+                {/* Permit2 Approval Button - Show beside Get Typed Data button */}
+                <button 
+                  type="button" 
+                  onClick={approvePermit2}
+                  style={{ 
+                    backgroundColor: permit2ApprovalResponse ? '#38a169' : '#667eea', 
+                    color: 'white',
+                    border: 'none',
+                    padding: '0.5rem 1rem',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '0.9rem',
+                    fontWeight: '500',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                  }}
+                  title="Approve Permit2 contract to spend tokens"
+                  disabled={permit2ApprovalLoading || !editableTypedData || !state.walletApiKey || !state.entitySecret || !formData.walletId}
+                >
+                  {permit2ApprovalResponse ? '✅ Approved' : (permit2ApprovalLoading ? 'Approving...' : '🔓 Approve Permit2')}
+                </button>
+              </div>
+              
+              {/* Status messages below buttons */}
+              <div style={{ marginTop: '0.5rem' }}>
+                {(!formData.tradeIds || !state.apiKey) && (
+                  <div style={{ fontSize: '0.8rem', color: '#718096' }}>
+                    {!formData.tradeIds ? 
+                      'Enter trade IDs first' :
+                      'Configure API Key in Settings'
+                    }
+                  </div>
+                )}
+                
+                {(!state.walletApiKey || !state.entitySecret || !formData.walletId) && editableTypedData && (
+                  <div style={{ fontSize: '0.8rem', color: '#718096' }}>
+                    Configure Circle credentials in Settings for Permit2 approval
+                  </div>
+                )}
+                
+                {permit2ApprovalError && (
+                  <div style={{ fontSize: '0.8rem', color: '#e53e3e' }}>
+                    ❌ {permit2ApprovalError}
+                  </div>
+                )}
+                
+                {permit2ApprovalResponse && (
+                  <div style={{ fontSize: '0.8rem', color: '#38a169', fontWeight: '500' }}>
+                    ✅ Permit2 approval transaction ID: <code style={{ backgroundColor: '#f0fff4', padding: '0.25rem', borderRadius: '3px' }}>{permit2ApprovalResponse.id || permit2ApprovalResponse.data?.id || 'Success'}</code>
+                  </div>
+                )}
+              </div>
             </div>
             
             {/* Show parsed trade IDs preview */}
@@ -954,7 +1080,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                     margin: 0, 
                     color: '#856404'
                   }}>
-                    Sign Typed Data with Circle SDK
+                    Sign Typed Data with Circle
                   </h4>
                 </div>
                 
@@ -972,7 +1098,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                   }}
                   disabled={loading || !state.walletApiKey || !state.entitySecret || !formData.walletId || !!typedDataError}
                 >
-                  {loading ? 'Signing...' : 'Sign with Circle SDK'}
+                  {loading ? 'Signing...' : 'Sign with Circle'}
                 </button>
                 
                 {(!state.walletApiKey || !state.entitySecret || !formData.walletId) && (
@@ -982,33 +1108,6 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                 )}
               </div>
             )}
-            
-            {/* Signature Display */}
-            {formData.signature && (
-              <div className="form-group">
-                <label>Generated Signature</label>
-                <textarea
-                  value={formData.signature}
-                  readOnly
-                  rows={3}
-                  style={{ 
-                    width: '100%', 
-                    resize: 'vertical', 
-                    padding: '0.75rem', 
-                    fontSize: '0.8rem',
-                    backgroundColor: '#f0fff4',
-                    borderColor: '#38a169',
-                    fontFamily: 'monospace'
-                  }}
-                />
-                <small style={{ color: '#38a169', fontSize: '0.85rem' }}>
-                  ✅ Signature generated successfully with Circle SDK
-                </small>
-              </div>
-            )}
-
-
-
 
           <div className="form-group">
             <label htmlFor="signature">
@@ -1044,78 +1143,77 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
           </div>
         </fieldset>
 
-        {/* Contract Execution Section */}
+        {/* Circle CPS Fund Execution Section */}
         {formData.signature && (
           <fieldset style={{ border: '1px solid #e2e8f0', borderRadius: '6px', padding: '2rem', marginBottom: '2rem' }}>
             <legend style={{ fontWeight: 'bold', color: '#2d3748', fontSize: '1.1rem' }}>
-              Contract Execution
+              Circle CPS Fund Execution
             </legend>
             
             <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f0f8ff', border: '1px solid #667eea', borderRadius: '6px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
                 <span style={{ fontSize: '1.2rem' }}>🚀</span>
-                <strong style={{ color: '#2d3748' }}>Ready to Execute Contract</strong>
+                <strong style={{ color: '#2d3748' }}>Ready to Call Circle CPS Fund API</strong>
               </div>
               <p style={{ margin: 0, fontSize: '0.95rem', color: '#718096' }}>
-                {fundingMode === 'net' && deliverType === 'maker' 
-                  ? `Execute makerNetDeliver function with ${parseTradeIds(formData.tradeIds).length} trade IDs using net settlement.`
-                  : `Execute ${deliverType}${isBatchMode() ? 'BatchDeliver' : 'Deliver'} function ${isBatchMode() ? `with ${parseTradeIds(formData.tradeIds).length} trade IDs` : 'with single trade ID'}.`
-                }
+                Call Circle's CPS fund endpoint with {deliverType} type and {fundingMode} funding mode.
+                This will process the funding using the permit2 signature and typed data.
               </p>
             </div>
 
-
-            {/* Contract Address */}
-            <div className="form-group">
-              <label htmlFor="contractAddress">Contract Address *</label>
-              <input
-                type="text"
-                id="contractAddress"
-                value={formData.contractAddress}
-                onChange={(e) => handleInputChange('contractAddress', e.target.value)}
-                placeholder="0x... (FxEscrow contract address)"
-                required
-                style={{ width: '100%', padding: '0.75rem', fontSize: '0.95rem' }}
-              />
-              <small style={{ color: '#718096', fontSize: '0.85rem' }}>
-                The deployed FxEscrow contract address on the target blockchain.
-              </small>
+            {/* Request Body Preview */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h4 style={{ margin: '0 0 1rem 0', color: '#2d3748', fontSize: '1rem' }}>
+                📋 Request Body Preview
+              </h4>
+              
+              <div>
+                <label style={{ fontWeight: 'bold', color: '#4a5568', fontSize: '0.9rem', display: 'block', marginBottom: '0.5rem' }}>
+                  Complete Request Body
+                  <span style={{ fontSize: '0.8rem', color: '#667eea', marginLeft: '0.5rem' }}>
+                    (what will be sent to Circle CPS fund API)
+                  </span>
+                </label>
+                <textarea
+                  value={(() => {
+                    try {
+                      if (!editableTypedData || !formData.signature) {
+                        return 'Complete request body will appear here after getting typed data and signature';
+                      }
+                      const typedDataObj = JSON.parse(editableTypedData);
+                      const permitData = typedDataObj?.message;
+                      const requestBody = {
+                        permit2: permitData,
+                        signature: formData.signature,
+                        type: deliverType,
+                        fundingMode: fundingMode
+                      };
+                      return JSON.stringify(requestBody, null, 2);
+                    } catch (err) {
+                      return 'Invalid data - please ensure typed data and signature are valid';
+                    }
+                  })()}
+                  readOnly
+                  rows={15}
+                  style={{ 
+                    width: '100%', 
+                    padding: '0.75rem', 
+                    fontSize: '0.8rem',
+                    backgroundColor: (editableTypedData && formData.signature) ? '#f0fff4' : '#f8f9fa',
+                    border: `2px solid ${(editableTypedData && formData.signature) ? '#38a169' : '#e2e8f0'}`,
+                    borderRadius: '6px',
+                    fontFamily: 'monospace',
+                    resize: 'vertical',
+                    color: (editableTypedData && formData.signature) ? '#2d3748' : '#a0aec0'
+                  }}
+                />
+                <small style={{ color: '#718096', fontSize: '0.85rem', display: 'block', marginTop: '0.5rem' }}>
+                  This is the exact JSON payload that will be sent to <code>POST /v1/exchange/cps/fund</code>
+                </small>
+              </div>
             </div>
 
-            {/* Wallet ID */}
-            <div className="form-group">
-              <label htmlFor="walletId">Wallet ID *</label>
-              <input
-                type="text"
-                id="walletId"
-                value={formData.walletId}
-                onChange={(e) => handleInputChange('walletId', e.target.value)}
-                placeholder="Circle programmable wallet ID"
-                required
-                style={{ width: '100%', padding: '0.75rem', fontSize: '0.95rem' }}
-              />
-              <small style={{ color: '#718096', fontSize: '0.85rem' }}>
-                Your Circle programmable wallet ID for contract execution.
-              </small>
-            </div>
-
-            {/* Reference ID (Optional) */}
-            <div className="form-group">
-              <label htmlFor="refId">Reference ID (Optional)</label>
-              <input
-                type="text"
-                id="refId"
-                value={formData.refId}
-                onChange={(e) => handleInputChange('refId', e.target.value)}
-                placeholder="Optional reference ID for tracking"
-                style={{ width: '100%', padding: '0.75rem', fontSize: '0.95rem' }}
-              />
-              <small style={{ color: '#718096', fontSize: '0.85rem' }}>
-                Optional reference ID for transaction tracking and identification.
-              </small>
-            </div>
-
-            {/* Execute Contract Button */}
+            {/* Execute Fund API Button */}
             <div style={{ 
               marginTop: '2rem',
               textAlign: 'center',
@@ -1130,8 +1228,12 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                   margin: 0, 
                   color: '#38a169'
                 }}>
-                  Execute {fundingMode === 'net' && deliverType === 'maker' ? 'MakerNet' : `${deliverType}${isBatchMode() ? 'Batch' : ''}`}Deliver
+                  Execute Circle CPS Fund
                 </h3>
+              </div>
+              
+              <div style={{ marginBottom: '1rem', fontSize: '0.9rem', color: '#4a5568' }}>
+                <strong>Type:</strong> {deliverType} | <strong>Funding Mode:</strong> {fundingMode}
               </div>
               
               <button 
@@ -1149,17 +1251,16 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                   boxShadow: '0 4px 6px rgba(56, 161, 105, 0.3)',
                   opacity: 1
                 }}
-                title="Execute the contract function with Circle SDK"
-                disabled={loading || !formData.contractAddress || !formData.walletId || !state.walletApiKey || !state.entitySecret}
+                title="Call Circle CPS fund endpoint"
+                disabled={loading || !state.apiKey || !state.environment}
               >
-                {loading ? 'Executing Contract...' : `🚀 Execute ${fundingMode === 'net' && deliverType === 'maker' ? 'MakerNet' : `${deliverType}${isBatchMode() ? 'Batch' : ''}`}Deliver`}
+                {loading ? 'Calling Circle API...' : `🚀 Execute CPS Fund (${deliverType}/${fundingMode})`}
               </button>
               
-              {(!formData.contractAddress || !formData.walletId || !state.walletApiKey || !state.entitySecret) && (
+              {(!state.apiKey || !state.environment) && (
                 <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#718096' }}>
-                  {!formData.contractAddress ? 'Enter contract address' :
-                   !formData.walletId ? 'Enter wallet ID' :
-                   (!state.walletApiKey || !state.entitySecret) ? 'Configure Circle credentials in Settings' : ''
+                  {!state.apiKey ? 'Configure API Key in Settings' :
+                   !state.environment ? 'Select Environment in Settings' : ''
                   }
                 </div>
               )}
@@ -1235,6 +1336,74 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                 <span style={{ fontSize: '1.2rem' }}>✅</span>
                 <strong style={{ color: '#38a169' }}>Success!</strong>
               </div>
+              
+              {/* Navigation message */}
+              {response._navigating && (
+                <div style={{ 
+                  padding: '1rem', 
+                  backgroundColor: '#e6fffa', 
+                  border: '2px solid #319795', 
+                  borderRadius: '6px',
+                  marginBottom: '1rem',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '1.2rem' }}>🚀</span>
+                    <strong style={{ color: '#319795' }}>{response._navigationMessage}</strong>
+                  </div>
+                  <div style={{ 
+                    marginTop: '0.5rem', 
+                    fontSize: '0.9rem', 
+                    color: '#2c5aa0' 
+                  }}>
+                    Taking you to the complete workflow page...
+                  </div>
+                </div>
+              )}
+              
+              {/* Special handling for Circle CPS Fund API response */}
+              {response && !response.details?.signingMethod && (
+                <div style={{ 
+                  padding: '1rem', 
+                  backgroundColor: '#e6fffa', 
+                  border: '1px solid #319795', 
+                  borderRadius: '6px',
+                  marginBottom: '1rem'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                    <span style={{ fontSize: '1.1rem' }}>🚀</span>
+                    <strong style={{ color: '#319795' }}>Circle CPS Fund API Response</strong>
+                  </div>
+                  
+                  <div style={{ fontSize: '0.9rem', color: '#2c5aa0', marginBottom: '1rem' }}>
+                    <strong>Endpoint:</strong> POST /v1/exchange/cps/fund<br/>
+                    <strong>Type:</strong> {deliverType}<br/>
+                    <strong>Funding Mode:</strong> {fundingMode}<br/>
+                    <strong>Status:</strong> {response.status || 'Success'}
+                  </div>
+
+                  {/* Show key response fields */}
+                  {response.id && (
+                    <div style={{ marginBottom: '1rem' }}>
+                      <strong style={{ color: '#319795' }}>📋 Response Details:</strong>
+                      <div style={{ 
+                        backgroundColor: '#f0f8ff', 
+                        border: '1px solid #90cdf4', 
+                        borderRadius: '4px', 
+                        padding: '0.75rem',
+                        fontFamily: 'monospace',
+                        fontSize: '0.8rem',
+                        marginTop: '0.5rem'
+                      }}>
+                        {response.id && <div><strong>ID:</strong> {response.id}</div>}
+                        {response.state && <div><strong>State:</strong> {response.state}</div>}
+                        {response.txHash && <div><strong>Transaction Hash:</strong> {response.txHash}</div>}
+                        {response.blockNumber && <div><strong>Block Number:</strong> {response.blockNumber}</div>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
               
               {/* Special handling for permit signature generation */}
               {response.details?.signingMethod && (

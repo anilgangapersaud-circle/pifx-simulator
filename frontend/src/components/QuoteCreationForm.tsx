@@ -12,7 +12,8 @@ const QuoteCreationForm: React.FC<QuoteCreationFormProps> = ({ state, updateStat
     fromCurrency: 'EURC',
     fromAmount: '',
     toAmount: '',
-    toCurrency: 'USDC'
+    toCurrency: 'USDC',
+    tenor: 'instant'
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -49,7 +50,8 @@ const QuoteCreationForm: React.FC<QuoteCreationFormProps> = ({ state, updateStat
         },
         to: {
           currency: formData.toCurrency
-        }
+        },
+        tenor: formData.tenor
       };
 
       // Add amount to either from or to based on what's provided
@@ -161,6 +163,24 @@ const QuoteCreationForm: React.FC<QuoteCreationFormProps> = ({ state, updateStat
           />
           <small className="form-hint">
             The amount you want to receive TO (in smallest currency unit)
+          </small>
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="tenor">Tenor *</label>
+          <select
+            id="tenor"
+            name="tenor"
+            value={formData.tenor}
+            onChange={handleChange}
+            required
+          >
+            <option value="instant">Instant</option>
+            <option value="hourly">Hourly</option>
+            <option value="daily">Daily</option>
+          </select>
+          <small className="form-hint">
+            The time frame for the quote validity
           </small>
         </div>
 

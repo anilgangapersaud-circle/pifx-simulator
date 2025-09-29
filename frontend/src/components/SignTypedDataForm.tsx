@@ -316,7 +316,7 @@ const SignTypedDataForm: React.FC<SignTypedDataFormProps> = ({ state, updateStat
     if (state.signingMethod === 'circle') {
       if (!state.walletApiKey || !state.entitySecret) {
         updateState({ 
-          signingError: 'Please configure your Wallet API Key and Entity Secret in Settings for Circle SDK signing',
+          signingError: 'Please configure your Wallet API Key and Entity Secret in Settings for Circle signing',
           signingResponse: null 
         });
         return;
@@ -324,7 +324,7 @@ const SignTypedDataForm: React.FC<SignTypedDataFormProps> = ({ state, updateStat
 
       if (!formData.walletId.trim()) {
         updateState({ 
-          signingError: 'Please enter a wallet ID for Circle SDK signing',
+          signingError: 'Please enter a wallet ID for Circle signing',
           signingResponse: null 
         });
         return;
@@ -337,7 +337,7 @@ const SignTypedDataForm: React.FC<SignTypedDataFormProps> = ({ state, updateStat
       let response;
 
       if (state.signingMethod === 'circle') {
-        // Circle SDK signing
+        // Circle signing
         response = await axios.post('http://localhost:3001/api/wallet/sign/typedData', {
           walletApiKey: state.walletApiKey,
           entitySecret: state.entitySecret,
@@ -408,7 +408,7 @@ const SignTypedDataForm: React.FC<SignTypedDataFormProps> = ({ state, updateStat
                 fontSize: '0.9rem'
               }}
             >
-              🔵 Circle SDK
+              🔵 Circle
             </button>
             <button
               type="button"
@@ -431,7 +431,7 @@ const SignTypedDataForm: React.FC<SignTypedDataFormProps> = ({ state, updateStat
         
         <p style={{ margin: 0, fontSize: '0.95rem', color: '#718096' }}>
           {state.signingMethod === 'circle' 
-            ? 'Sign EIP-712 typed data using Circle\'s Programmable Wallets SDK with your managed wallet.'
+            ? 'Sign EIP-712 typed data using Circle\'s Programmable Wallets with your managed wallet.'
             : 'Generate a new wallet and sign EIP-712 typed data using Web3.js + Ethers.js.'
           }
         </p>
@@ -612,7 +612,7 @@ const SignTypedDataForm: React.FC<SignTypedDataFormProps> = ({ state, updateStat
           {state.signingLoading 
             ? 'Signing...' 
             : state.signingMethod === 'circle' 
-              ? '🔵 Sign with Circle SDK' 
+              ? '🔵 Sign with Circle' 
               : '🧪 Generate Wallet & Sign'
           }
         </button>

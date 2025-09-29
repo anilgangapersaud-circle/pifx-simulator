@@ -11,7 +11,8 @@ const QuotesForm: React.FC<QuotesFormProps> = ({ state, updateState }) => {
   const [formData, setFormData] = useState({
     fromCurrency: 'EURC',
     toAmount: '',
-    toCurrency: 'USDC'
+    toCurrency: 'USDC',
+    tenor: 'instant'
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -31,7 +32,8 @@ const QuotesForm: React.FC<QuotesFormProps> = ({ state, updateState }) => {
         to: {
           amount: parseInt(formData.toAmount),
           currency: formData.toCurrency
-        }
+        },
+        tenor: formData.tenor
       };
 
       const response = await axios.post('http://localhost:3001/api/quotes', {
@@ -93,6 +95,19 @@ const QuotesForm: React.FC<QuotesFormProps> = ({ state, updateState }) => {
           >
             <option value="USDC">USDC</option>
             <option value="EURC">EURC</option>
+          </select>
+        </div>
+        <div className="form-group">
+          <label>Tenor:</label>
+          <select
+            name="tenor"
+            value={formData.tenor}
+            onChange={handleChange}
+            required
+          >
+            <option value="instant">Instant</option>
+            <option value="hourly">Hourly</option>
+            <option value="daily">Daily</option>
           </select>
         </div>
         <button type="submit" disabled={state.loading}>
