@@ -40,16 +40,16 @@ const GetSignaturesPage: React.FC<GetSignaturesPageProps> = ({ state, updateStat
         
         <div className="endpoint-info">
           <span className="method post">POST</span>
-          <span className="endpoint-path">/v1/exchange/cps/trades</span>
+          <span className="endpoint-path">/v1/exchange/stablefx/trades</span>
           <span style={{ margin: '0 0.3rem' }}>→</span>
           <span className="method get">GET</span>
-          <span className="endpoint-path">/v1/exchange/cps/signatures/presign</span>
+          <span className="endpoint-path">/v1/exchange/stablefx/signatures/presign</span>
           <span style={{ margin: '0 0.3rem' }}>→</span>
           <span className="method post">POST</span>
           <span className="endpoint-path">/v1/w3s/developer/sign/typedData</span>
           <span style={{ margin: '0 0.3rem' }}>→</span>
           <span className="method post">POST</span>
-          <span className="endpoint-path">/v1/exchange/cps/signatures</span>
+          <span className="endpoint-path">/v1/exchange/stablefx/signatures</span>
         </div>
         
         <div style={{ 

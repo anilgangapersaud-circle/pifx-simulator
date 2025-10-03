@@ -16,7 +16,7 @@ const SignaturesPage: React.FC<SignaturesPageProps> = ({ state, updateState }) =
         <p>Submit cryptographic signatures for trades</p>
         <div className="endpoint-info">
           <span className="method post">POST</span>
-          <span className="endpoint-path">/v1/exchange/cps/signatures</span>
+          <span className="endpoint-path">/v1/exchange/stablefx/signatures</span>
         </div>
       </div>
       

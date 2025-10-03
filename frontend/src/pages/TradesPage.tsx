@@ -16,7 +16,7 @@ const TradesPage: React.FC<TradesPageProps> = ({ state, updateState }) => {
         <p>Create a new trade using a quote ID</p>
         <div className="endpoint-info">
           <span className="method post">POST</span>
-          <span className="endpoint-path">/v1/exchange/cps/trades</span>
+          <span className="endpoint-path">/v1/exchange/stablefx/trades</span>
         </div>
       </div>
       

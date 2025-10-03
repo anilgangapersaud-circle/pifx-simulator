@@ -16,7 +16,7 @@ const GetTradeByIdPage: React.FC<GetTradeByIdPageProps> = ({ state, updateState 
         <p>Retrieve specific trade details using trade ID</p>
         <div className="endpoint-info">
           <span className="method get">GET</span>
-          <span className="endpoint-path">/v1/exchange/cps/trades/:tradeId</span>
+          <span className="endpoint-path">/v1/exchange/stablefx/trades/:tradeId</span>
         </div>
       </div>
       

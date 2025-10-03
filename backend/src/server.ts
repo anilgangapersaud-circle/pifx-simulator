@@ -141,14 +141,14 @@ const callCircleContractExecutionAPI = async (apiKey: string, entitySecret: stri
   return response;
 };
 
-// POST /v1/exchange/cps/quotes
+// POST /v1/exchange/stablefx/quotes
 app.post('/api/quotes', async (req, res) => {
   try {
     const { environment, apiKey, ...requestBody } = req.body;
     const baseUrl = getBaseUrl(environment);
     
     const response = await axios.post(
-      `${baseUrl}/v1/exchange/cps/quotes`,
+      `${baseUrl}/v1/exchange/stablefx/quotes`,
       requestBody,
       {
         headers: {
@@ -167,14 +167,14 @@ app.post('/api/quotes', async (req, res) => {
   }
 });
 
-// POST /v1/exchange/cps/trades
+// POST /v1/exchange/stablefx/trades
 app.post('/api/trades', async (req, res) => {
   try {
     const { environment, apiKey, ...requestBody } = req.body;
     const baseUrl = getBaseUrl(environment);
     
     const response = await axios.post(
-      `${baseUrl}/v1/exchange/cps/trades`,
+      `${baseUrl}/v1/exchange/stablefx/trades`,
       requestBody,
       {
         headers: {
@@ -193,14 +193,14 @@ app.post('/api/trades', async (req, res) => {
   }
 });
 
-// POST /v1/exchange/cps/signatures
+// POST /v1/exchange/stablefx/signatures
 app.post('/api/signatures', async (req, res) => {
   try {
     const { environment, apiKey, ...requestBody } = req.body;
     const baseUrl = getBaseUrl(environment);
     
     const response = await axios.post(
-      `${baseUrl}/v1/exchange/cps/signatures`,
+      `${baseUrl}/v1/exchange/stablefx/signatures`,
       requestBody,
       {
         headers: {
@@ -265,7 +265,7 @@ app.post('/api/signatures/funding/presign', async (req, res) => {
     };
     
     const response = await axios.post(
-      `${baseUrl}/v1/exchange/cps/signatures/funding/presign`,
+      `${baseUrl}/v1/exchange/stablefx/signatures/funding/presign`,
       requestBody,
       {
         headers: {
@@ -304,14 +304,14 @@ app.post('/api/signatures/funding/presign', async (req, res) => {
   }
 });
 
-// GET /v1/exchange/cps/trades
+// GET /v1/exchange/stablefx/trades
 app.get('/api/trades', async (req, res) => {
   try {
     const { environment, apiKey, ...queryParams } = req.query;
     const baseUrl = getBaseUrl(environment as string);
     
     const response = await axios.get(
-      `${baseUrl}/v1/exchange/cps/trades`,
+      `${baseUrl}/v1/exchange/stablefx/trades`,
       {
         headers: {
           'Authorization': `Bearer ${apiKey}`,
@@ -330,7 +330,7 @@ app.get('/api/trades', async (req, res) => {
   }
 });
 
-// GET /v1/exchange/cps/trades/:tradeId
+// GET /v1/exchange/stablefx/trades/:tradeId
 app.get('/api/trades/:tradeId', async (req, res) => {
   try {
     const { tradeId } = req.params;
@@ -338,7 +338,7 @@ app.get('/api/trades/:tradeId', async (req, res) => {
     const baseUrl = getBaseUrl(environment as string);
     
     const response = await axios.get(
-      `${baseUrl}/v1/exchange/cps/trades/${tradeId}`,
+      `${baseUrl}/v1/exchange/stablefx/trades/${tradeId}`,
       {
         headers: {
           'Authorization': `Bearer ${apiKey}`,
@@ -357,7 +357,7 @@ app.get('/api/trades/:tradeId', async (req, res) => {
   }
 });
 
-// GET /v1/exchange/cps/signatures/presign/:selector/:tradeId
+// GET /v1/exchange/stablefx/signatures/presign/:selector/:tradeId
 app.get('/api/signatures/presign/:selector/:tradeId', async (req, res) => {
   try {
     const { selector, tradeId } = req.params;
@@ -372,7 +372,7 @@ app.get('/api/signatures/presign/:selector/:tradeId', async (req, res) => {
     }
     
     const response = await axios.get(
-      `${baseUrl}/v1/exchange/cps/signatures/presign/${selector}/${tradeId}`,
+      `${baseUrl}/v1/exchange/stablefx/signatures/presign/${selector}/${tradeId}`,
       {
         headers: {
           'Authorization': `Bearer ${apiKey}`,
@@ -537,7 +537,7 @@ app.post('/api/wallet/sign/typedData', async (req, res) => {
   }
 });
 
-// POST /v1/exchange/cps/signatures
+// POST /v1/exchange/stablefx/signatures
 app.post('/api/signatures/register', async (req, res) => {
   try {
     const { tradeId, type, address, details, signature } = req.body;
@@ -593,7 +593,7 @@ app.post('/api/signatures/register', async (req, res) => {
     };
     
     const response = await axios.post(
-      `${baseUrl}/v1/exchange/cps/signatures`,
+      `${baseUrl}/v1/exchange/stablefx/signatures`,
       requestBody,
       {
         headers: {
@@ -1605,7 +1605,7 @@ app.post('/api/takerDeliver', async (req, res) => {
 
     // Call Circle's CPS fund endpoint
     const response = await axios.post(
-      `${baseUrl}/v1/exchange/cps/fund`,
+      `${baseUrl}/v1/exchange/stablefx/fund`,
       requestBody,
       {
         headers: {
@@ -1714,7 +1714,7 @@ app.post('/api/takerBatchDeliver', async (req, res) => {
     };
 
     const response = await axios.post(
-      `${baseUrl}/v1/exchange/cps/fund`,
+      `${baseUrl}/v1/exchange/stablefx/fund`,
       requestBody,
       {
         headers: {
@@ -1810,7 +1810,7 @@ app.post('/api/makerDeliver', async (req, res) => {
     };
 
     const response = await axios.post(
-      `${baseUrl}/v1/exchange/cps/fund`,
+      `${baseUrl}/v1/exchange/stablefx/fund`,
       requestBody,
       {
         headers: {
@@ -1906,7 +1906,7 @@ app.post('/api/makerBatchDeliver', async (req, res) => {
     };
 
     const response = await axios.post(
-      `${baseUrl}/v1/exchange/cps/fund`,
+      `${baseUrl}/v1/exchange/stablefx/fund`,
       requestBody,
       {
         headers: {
@@ -2002,7 +2002,7 @@ app.post('/api/makerNetDeliver', async (req, res) => {
     };
 
     const response = await axios.post(
-      `${baseUrl}/v1/exchange/cps/fund`,
+      `${baseUrl}/v1/exchange/stablefx/fund`,
       requestBody,
       {
         headers: {

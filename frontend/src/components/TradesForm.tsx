@@ -59,7 +59,7 @@ const TradesForm: React.FC<TradesFormProps> = ({ state, updateState }) => {
 
   return (
     <div className="form-container">
-      <h4>POST /v1/exchange/cps/trades</h4>
+      <h4>POST /v1/exchange/stablefx/trades</h4>
       <form onSubmit={handleSubmit}>
         <div className="form-group">
           <label>Quote ID:</label>

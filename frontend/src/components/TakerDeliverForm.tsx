@@ -1208,7 +1208,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                   }}
                 />
                 <small style={{ color: '#718096', fontSize: '0.85rem', display: 'block', marginTop: '0.5rem' }}>
-                  This is the exact JSON payload that will be sent to <code>POST /v1/exchange/cps/fund</code>
+                  This is the exact JSON payload that will be sent to <code>POST /v1/exchange/stablefx/fund</code>
                 </small>
               </div>
             </div>
@@ -1376,7 +1376,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                   </div>
                   
                   <div style={{ fontSize: '0.9rem', color: '#2c5aa0', marginBottom: '1rem' }}>
-                    <strong>Endpoint:</strong> POST /v1/exchange/cps/fund<br/>
+                    <strong>Endpoint:</strong> POST /v1/exchange/stablefx/fund<br/>
                     <strong>Type:</strong> {deliverType}<br/>
                     <strong>Funding Mode:</strong> {fundingMode}<br/>
                     <strong>Status:</strong> {response.status || 'Success'}

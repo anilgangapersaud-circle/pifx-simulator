@@ -7,12 +7,12 @@ A modern React and Node.js application for testing Circle CPS (Circle Programmab
 - **Environment Switching**: Toggle between Smokebox and Sandbox environments with a single click
 - **API Key Management**: Secure API key input with password masking
 - **Complete API Coverage**: Support for all Circle CPS endpoints:
-  - POST `/v1/exchange/cps/quotes`
-  - POST `/v1/exchange/cps/trades`
-  - POST `/v1/exchange/cps/signatures`
-  - GET `/v1/exchange/cps/trades`
-  - GET `/v1/exchange/cps/trades/:tradeId`
-  - GET `/v1/exchange/cps/signatures/presign/taker/:tradeId`
+  - POST `/v1/exchange/stablefx/quotes`
+  - POST `/v1/exchange/stablefx/trades`
+  - POST `/v1/exchange/stablefx/signatures`
+  - GET `/v1/exchange/stablefx/trades`
+  - GET `/v1/exchange/stablefx/trades/:tradeId`
+  - GET `/v1/exchange/stablefx/signatures/presign/taker/:tradeId`
 - **Dynamic Forms**: Custom forms for each endpoint with appropriate field validation
 - **Query Parameters**: Support for filtering and pagination on GET requests
 - **Response Display**: Beautiful JSON response viewer with error handling
@@ -114,12 +114,12 @@ You'll need to run both the backend and frontend servers:
 - **Smokebox**: `https://api-smokebox.circle.com`
 
 ### Supported Endpoints
-- `POST /v1/exchange/cps/quotes` - Get exchange quotes
-- `POST /v1/exchange/cps/trades` - Create trades
-- `POST /v1/exchange/cps/signatures` - Submit signatures
-- `GET /v1/exchange/cps/trades` - List trades
-- `GET /v1/exchange/cps/trades/:tradeId` - Get trade details
-- `GET /v1/exchange/cps/signatures/presign/taker/:tradeId` - Get presign data
+- `POST /v1/exchange/stablefx/quotes` - Get exchange quotes
+- `POST /v1/exchange/stablefx/trades` - Create trades
+- `POST /v1/exchange/stablefx/signatures` - Submit signatures
+- `GET /v1/exchange/stablefx/trades` - List trades
+- `GET /v1/exchange/stablefx/trades/:tradeId` - Get trade details
+- `GET /v1/exchange/stablefx/signatures/presign/taker/:tradeId` - Get presign data
 
 ## Configuration
 

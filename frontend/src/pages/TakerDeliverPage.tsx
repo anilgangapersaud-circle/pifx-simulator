@@ -92,7 +92,7 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
         }}>
           <div style={{ fontWeight: 'bold', color: '#319795' }}>Circle CPS Fund API</div>
           <div style={{ fontSize: '0.9rem', color: '#2c5aa0', marginTop: '0.25rem' }}>
-            <code>POST /v1/exchange/cps/fund</code>
+            <code>POST /v1/exchange/stablefx/fund</code>
           </div>
           <div style={{ fontSize: '0.8rem', color: '#718096', marginTop: '0.25rem' }}>
             Direct API funding execution
@@ -222,7 +222,7 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
         </summary>
         <div style={{ marginTop: '1rem' }}>
           <p><strong>Endpoint:</strong> <code>POST /api/takerDeliver</code></p>
-          <p><strong>Circle API:</strong> <code>POST /v1/exchange/cps/fund</code></p>
+          <p><strong>Circle API:</strong> <code>POST /v1/exchange/stablefx/fund</code></p>
           <p><strong>Method:</strong> Direct API call instead of contract execution</p>
           <p><strong>Parameters:</strong> permit2, signature, type, fundingMode</p>
           

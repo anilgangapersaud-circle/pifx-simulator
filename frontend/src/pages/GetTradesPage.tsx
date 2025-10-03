@@ -16,7 +16,7 @@ const GetTradesPage: React.FC<GetTradesPageProps> = ({ state, updateState }) => 
         <p>Retrieve a list of trades with optional filtering</p>
         <div className="endpoint-info">
           <span className="method get">GET</span>
-          <span className="endpoint-path">/v1/exchange/cps/trades</span>
+          <span className="endpoint-path">/v1/exchange/stablefx/trades</span>
         </div>
       </div>
       

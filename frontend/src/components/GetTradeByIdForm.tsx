@@ -41,7 +41,7 @@ const GetTradeByIdForm: React.FC<GetTradeByIdFormProps> = ({ state, updateState 
 
   return (
     <div className="form-container">
-      <h4>GET /v1/exchange/cps/trades/:tradeId</h4>
+      <h4>GET /v1/exchange/stablefx/trades/:tradeId</h4>
       <form onSubmit={handleSubmit}>
         <div className="form-group">
           <label>Trade ID:</label>

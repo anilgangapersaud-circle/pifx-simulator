@@ -69,7 +69,7 @@ const SignaturesForm: React.FC<SignaturesFormProps> = ({ state, updateState }) =
 
   return (
     <div className="form-container">
-      <h4>POST /v1/exchange/cps/signatures</h4>
+      <h4>POST /v1/exchange/stablefx/signatures</h4>
       <form onSubmit={handleSubmit}>
         <div className="form-group">
           <label>Trade ID:</label>
