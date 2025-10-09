@@ -435,9 +435,6 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
               {renderStepIndicator('deliver', 6, 'Deliver')}
-              <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
-              
-              {renderStepIndicator('complete', 7, 'Complete')}
             </>
           ) : (
             <>
@@ -454,31 +451,9 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
               {renderStepIndicator('deliver', 5, 'Deliver')}
-              <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
-              
-              {renderStepIndicator('complete', 6, 'Complete')}
             </>
           )}
         </div>
-
-        {/* Reset Button */}
-        {(workflowData.quoteComplete || workflowData.tradeComplete || workflowData.getTradesComplete || workflowData.presignComplete || workflowData.signComplete || workflowData.registerComplete || workflowData.deliveryComplete) && (
-          <button
-            onClick={resetWorkflow}
-            style={{
-              marginLeft: '2rem',
-              padding: '0.5rem 1rem',
-              border: '1px solid #e2e8f0',
-              borderRadius: '6px',
-              backgroundColor: 'white',
-              color: '#4a5568',
-              cursor: 'pointer',
-              fontSize: '0.9rem'
-            }}
-          >
-            🔄 Reset Workflow
-          </button>
-        )}
       </div>
 
       <div className="page-content" style={{ maxWidth: 'none', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>

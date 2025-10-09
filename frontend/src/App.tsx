@@ -11,10 +11,8 @@ import GetTradesPage from './pages/GetTradesPage';
 import GetTradeByIdPage from './pages/GetTradeByIdPage';
 import GetSignaturesPage from './pages/GetSignaturesPage';
 import ContractExecutionPage from './pages/ContractExecutionPage';
-import BreachTradePage from './pages/BreachTradePage';
 import TakerDeliverPage from './pages/TakerDeliverPage';
 import CompleteWorkflowPage from './pages/CompleteWorkflowPage';
-import MakerNetBalancesPage from './pages/MakerNetBalancesPage';
 
 
 export interface AppState {
@@ -303,11 +301,9 @@ function AppContent() {
           <Route path="/trades" element={<TradesPage state={state} updateState={updateState} />} />
           <Route path="/signatures" element={<SignaturesPage state={state} updateState={updateState} />} />
           <Route path="/contract-execution" element={<ContractExecutionPage state={state} updateState={updateState} />} />
-          <Route path="/breach-trade" element={<BreachTradePage state={state} updateState={updateState} />} />
           <Route path="/taker-deliver" element={<TakerDeliverPage state={state} updateState={updateState} />} />
           <Route path="/get-trades" element={<GetTradesPage state={state} updateState={updateState} />} />
           <Route path="/get-trade" element={<GetTradeByIdPage state={state} updateState={updateState} />} />
-          <Route path="/maker-net-balances" element={<MakerNetBalancesPage state={state} updateState={updateState} />} />
           <Route path="/complete-workflow" element={<CompleteWorkflowPage state={state} updateState={updateState} />} />
         </Routes>
       </main>
@@ -382,7 +378,6 @@ function AppContent() {
               </p>
             ) : state.tokenBalance ? (
               <div>
-                  <strong>Token Balances ({state.tokenBalance.totalTokens}):</strong>
                   {state.tokenBalance.tokens && state.tokenBalance.tokens.length > 0 ? (
                     <div style={{ marginTop: '0.5rem', maxHeight: '200px', overflowY: 'auto' }}>
                       {state.tokenBalance.tokens.map((tokenBalance: any, index: number) => (

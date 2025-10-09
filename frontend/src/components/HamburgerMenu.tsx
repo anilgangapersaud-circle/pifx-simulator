@@ -11,9 +11,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({ currentPath }) => {
   const menuItems = [
     { path: '/', label: 'Complete Workflow', icon: '🔄', method: 'FLOW' },
     { path: '/get-trades', label: 'Get Trades', icon: '📋', method: 'GET' },
-    { path: '/get-trade', label: 'Get Trade by ID', icon: '🔍', method: 'GET' },
-    { path: '/maker-net-balances', label: 'Maker Net Balances', icon: '📊', method: 'GET' },
-    { path: '/breach-trade', label: 'Breach Trade', icon: '⚠️', method: 'POST' }
+    { path: '/get-trade', label: 'Get Trade by ID', icon: '🔍', method: 'GET' }
   ];
 
   const toggleMenu = () => {

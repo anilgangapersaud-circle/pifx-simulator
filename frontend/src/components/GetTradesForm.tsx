@@ -64,7 +64,6 @@ const GetTradesForm: React.FC<GetTradesFormProps> = ({ state, updateState, flowT
 
   return (
     <div className="form-container">
-      <p>Retrieve trades filtered by type and status</p>
       <form onSubmit={handleSubmit}>
         <div className="form-group">
           <label>Type:</label>
