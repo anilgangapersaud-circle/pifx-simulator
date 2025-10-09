@@ -13,7 +13,7 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
     <div className="page-container" style={{ maxWidth: 'none', width: '98%' }}>
       <div className="page-header">
         <h1>Taker Deliver</h1>
-        <p>Execute token delivery as the taker using Circle's CPS Fund API with Permit2 signatures</p>
+        <p>Execute token delivery as the taker using Circle's StableFX Fund API with Permit2 signatures</p>
       </div>
 
       {/* Integration Info Banner */}
@@ -29,7 +29,7 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
           <h3 style={{ margin: 0, color: '#319795' }}>Taker Deliver Function</h3>
         </div>
         <p style={{ margin: '0.5rem 0', color: '#2c5aa0' }}>
-          This page uses Circle's <code>CPS Fund API</code> to execute funding operations instead of contract calls. 
+          This page uses Circle's <code>StableFX Fund API</code> to execute funding operations instead of contract calls. 
           Features a 3-step workflow: Typed data retrieval, permit signing, and API execution.
         </p>
         <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', flexWrap: 'wrap' }}>
@@ -67,7 +67,7 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
             border: '1px solid #38a169',
             fontSize: '0.85rem'
           }}>
-            ✅ Circle CPS Fund API
+            ✅ Circle StableFX Fund API
           </div>
         </div>
       </div>
@@ -90,7 +90,7 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
           borderRadius: '6px',
           border: '1px solid #319795'
         }}>
-          <div style={{ fontWeight: 'bold', color: '#319795' }}>Circle CPS Fund API</div>
+          <div style={{ fontWeight: 'bold', color: '#319795' }}>Circle StableFX Fund API</div>
           <div style={{ fontSize: '0.9rem', color: '#2c5aa0', marginTop: '0.25rem' }}>
             <code>POST /v1/exchange/stablefx/fund</code>
           </div>
@@ -227,7 +227,7 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
           <p><strong>Parameters:</strong> permit2, signature, type, fundingMode</p>
           
           <div style={{ marginTop: '1rem' }}>
-            <strong>Note:</strong> <em>This implementation uses Circle's CPS fund endpoint directly instead of executing smart contract functions. The permit2 data from typed data is passed along with the signature to the API.</em>
+            <strong>Note:</strong> <em>This implementation uses Circle's StableFX fund endpoint directly instead of executing smart contract functions. The permit2 data from typed data is passed along with the signature to the API.</em>
           </div>
           
           <div style={{ marginTop: '1rem' }}>
@@ -295,9 +295,9 @@ const TakerDeliverPage: React.FC<TakerDeliverPageProps> = ({ state, updateState 
         border: '1px solid #319795',
         textAlign: 'center'
       }}>
-        <h4 style={{ margin: '0 0 0.5rem 0', color: '#319795' }}>🚀 Circle CPS Fund Integration</h4>
+        <h4 style={{ margin: '0 0 0.5rem 0', color: '#319795' }}>🚀 Circle StableFX Fund Integration</h4>
         <p style={{ margin: 0, color: '#2c5aa0', fontSize: '0.9rem' }}>
-          This integration demonstrates direct API-based funding using Circle's CPS fund endpoint. 
+          This integration demonstrates direct API-based funding using Circle's StableFX fund endpoint. 
           Replaces contract execution with API calls for streamlined funding operations.
         </p>
       </div>

@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@circle-fin/stablefx-sdk": "file:circle-fin-stablefx-sdk-0.1.0.tgz"
+  }
+}

@@ -158,12 +158,14 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
       
       console.log('📤 Sending signature registration request:', requestBody);
       
-      const response = await axios.post('http://localhost:3001/api/signatures/register', requestBody, {
-        params: {
-          environment: state.environment,
-          apiKey: state.apiKey
-        }
-      });
+      // Add apiKey and environment to the request body
+      const fullRequestBody = {
+        ...requestBody,
+        apiKey: state.apiKey,
+        environment: state.environment
+      };
+      
+      const response = await axios.post('http://localhost:3001/api/signatures', fullRequestBody);
       
       updateState({ 
         registrationResponse: response.data, 

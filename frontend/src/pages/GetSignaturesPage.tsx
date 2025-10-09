@@ -140,7 +140,7 @@ const GetSignaturesPage: React.FC<GetSignaturesPageProps> = ({ state, updateStat
           {/* Step 5: Register Signature */}
           <div className="workflow-step">
             <h3>Step 5: Register Signature</h3>
-            <p>Register the signature from Step 4 with Circle CPS API</p>
+            <p>Register the signature from Step 4 with Circle StableFX API</p>
             <div style={{ marginTop: '1rem' }}>
               <RegisterSignatureForm state={state} updateState={updateState} />
             </div>

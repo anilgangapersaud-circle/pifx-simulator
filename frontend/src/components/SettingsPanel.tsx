@@ -70,13 +70,13 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
           </div>
           
           <div className="settings-group">
-            <label htmlFor="api-key">Circle CPS API Key</label>
+            <label htmlFor="api-key">Circle StableFX API Key</label>
             <input
               id="api-key"
               type="password"
               value={apiKey}
               onChange={(e) => onApiKeyChange(e.target.value)}
-              placeholder="Enter your Circle CPS API key"
+              placeholder="Enter your Circle StableFX API key"
               className="settings-input"
             />
             <p className="settings-help">

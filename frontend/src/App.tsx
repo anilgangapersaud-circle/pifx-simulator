@@ -25,7 +25,6 @@ export interface AppState {
   walletId: string; // Keep for backward compatibility
   makerWalletId: string;
   takerWalletId: string;
-  signingMethod: 'circle' | 'web3';
   currentFlowType?: 'taker' | 'maker'; // Track current flow type for UI theming
   // Token balance
   tokenBalance: any;
@@ -64,8 +63,7 @@ const SESSION_KEYS = {
   ENTITY_SECRET: 'circle_entity_secret',
   MAKER_WALLET_ID: 'circle_maker_wallet_id',
   TAKER_WALLET_ID: 'circle_taker_wallet_id',
-  ENVIRONMENT: 'circle_environment',
-  SIGNING_METHOD: 'circle_signing_method'
+  ENVIRONMENT: 'circle_environment'
 };
 
 const getFromSession = (key: string, defaultValue: any) => {
@@ -102,7 +100,6 @@ const clearSession = () => {
     sessionStorage.removeItem(SESSION_KEYS.MAKER_WALLET_ID);
     sessionStorage.removeItem(SESSION_KEYS.TAKER_WALLET_ID);
     sessionStorage.removeItem(SESSION_KEYS.ENVIRONMENT);
-    sessionStorage.removeItem(SESSION_KEYS.SIGNING_METHOD);
   } catch (error) {
     console.warn('Failed to clear session storage:', error);
   }
@@ -124,7 +121,6 @@ function AppContent() {
     walletId: legacyWalletId, // Keep for migration purposes only
     makerWalletId: makerWalletId,
     takerWalletId: takerWalletId,
-    signingMethod: getFromSession(SESSION_KEYS.SIGNING_METHOD, 'circle'),
     currentFlowType: 'taker', // Default to taker flow
     // Token balance
     tokenBalance: null,
@@ -175,6 +171,7 @@ function AppContent() {
   const getTokenImage = (symbol: string, tokenAddress?: string) => {
     const tokenImages: { [key: string]: string } = {
       'USDC': 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ43MuDqq54iD1ZCRL_uthAPkfwSSL-J5qI_Q&s',
+      'USDC-TESTNET': 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ43MuDqq54iD1ZCRL_uthAPkfwSSL-J5qI_Q&s',
       'EURC': 'https://assets.coingecko.com/coins/images/26045/standard/euro.png',
       'ETH': 'https://www.citypng.com/public/uploads/preview/ethereum-eth-round-logo-icon-png-701751694969815akblwl2552.png',
       'ETH-SEPOLIA': 'https://www.citypng.com/public/uploads/preview/ethereum-eth-round-logo-icon-png-701751694969815akblwl2552.png'
@@ -268,9 +265,6 @@ function AppContent() {
     }
     if (updates.environment !== undefined) {
       saveToSession(SESSION_KEYS.ENVIRONMENT, updates.environment);
-    }
-    if (updates.signingMethod !== undefined) {
-      saveToSession(SESSION_KEYS.SIGNING_METHOD, updates.signingMethod);
     }
   };
 
