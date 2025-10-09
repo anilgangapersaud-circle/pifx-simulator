@@ -204,7 +204,7 @@ app.get('/api/signatures/presign/:type/:tradeId', async (req, res) => {
     const traderType: Type = type === 'taker' ? Type.taker : Type.maker;
     
     const response = await client.getTradePresignData({
-      type: traderType,
+      traderType: traderType,
       tradeId: tradeId,
       ...queryParams
     });
@@ -346,6 +346,8 @@ app.post('/api/fund', async (req, res) => {
         error: 'signature is required'
       });
     }
+
+    
 
     const client = initializeStableFXClient({
       apiKey,

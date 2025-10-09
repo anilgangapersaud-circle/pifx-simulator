@@ -1,4 +1,4 @@
-# PiFX Simulator
+# StableFX Client
 
 A modern React and Node.js application for testing Circle CPS (Circle Programmable Settlements) API endpoints with support for both Smokebox and Sandbox environments.
 
@@ -21,7 +21,7 @@ A modern React and Node.js application for testing Circle CPS (Circle Programmab
 ## Project Structure
 
 ```
-pifx-simulator/
+stablefx-client/
 ├── backend/                 # Node.js Express server
 │   ├── src/
 │   │   └── server.ts       # Main server file with API proxy
@@ -56,7 +56,7 @@ pifx-simulator/
 
 1. **Clone or navigate to the project directory:**
    ```bash
-   cd pifx-simulator
+   cd stablefx-client
    ```
 
 2. **Install backend dependencies:**
