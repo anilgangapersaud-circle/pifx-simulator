@@ -211,29 +211,8 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
   };
 
   const approvePermit2 = async () => {
-    // Extract token address from the typed data
-    let tokenAddress = '';
-    try {
-      if (editableTypedData) {
-        const typedDataObj = JSON.parse(editableTypedData);
-        const permitData = typedDataObj?.message;
-        if (permitData?.permitted) {
-          if (Array.isArray(permitData.permitted)) {
-            // Batch mode - use first token
-            tokenAddress = permitData.permitted[0]?.token || '';
-          } else {
-            // Single mode
-            tokenAddress = permitData.permitted.token || '';
-          }
-        }
-      }
-    } catch (err) {
-      setPermit2ApprovalError('Cannot extract token address from typed data');
-      return;
-    }
-
-    if (!tokenAddress) {
-      setPermit2ApprovalError('No token address found in typed data. Get typed data first.');
+    if (!editableTypedData) {
+      setPermit2ApprovalError('No typed data found. Get typed data first.');
       return;
     }
 
@@ -251,7 +230,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
         walletApiKey: state.walletApiKey,
         entitySecret: state.entitySecret,
         walletId: formData.walletId,
-        tokenAddress: tokenAddress,
+        typedData: editableTypedData,
         refId: `permit2-approval-${Date.now()}`
       };
 
@@ -846,7 +825,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                   title="Approve Permit2 contract to spend tokens"
                   disabled={permit2ApprovalLoading || !editableTypedData || !state.walletApiKey || !state.entitySecret || !formData.walletId}
                 >
-                  {permit2ApprovalResponse ? '✅ Approved' : (permit2ApprovalLoading ? 'Approving...' : 'Approve Permit2')}
+                  {permit2ApprovalResponse ? 'Approved' : (permit2ApprovalLoading ? 'Approving...' : 'Approve Permit2')}
                 </button>
               </div>
               
@@ -869,13 +848,13 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                 
                 {permit2ApprovalError && (
                   <div style={{ fontSize: '0.8rem', color: '#e53e3e' }}>
-                    ❌ {permit2ApprovalError}
+                    {permit2ApprovalError}
                   </div>
                 )}
                 
                 {permit2ApprovalResponse && (
                   <div style={{ fontSize: '0.8rem', color: '#38a169', fontWeight: '500' }}>
-                    ✅ Permit2 approval transaction ID: <code style={{ backgroundColor: '#f0fff4', padding: '0.25rem', borderRadius: '3px' }}>{permit2ApprovalResponse.id || permit2ApprovalResponse.data?.id || 'Success'}</code>
+                    Permit2 approval transaction ID: <code style={{ backgroundColor: '#f0fff4', padding: '0.25rem', borderRadius: '3px' }}>{permit2ApprovalResponse.id || permit2ApprovalResponse.data?.id || 'Success'}</code>
                   </div>
                 )}
               </div>
@@ -1034,24 +1013,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
             
             {/* Sign Typed Data Button - Only show if we have editable typed data and no signature */}
             {editableTypedData && !formData.signature && (
-              <div style={{ 
-                marginBottom: '1rem', 
-                textAlign: 'center',
-                padding: '1rem',
-                backgroundColor: '#fff3cd',
-                border: '2px solid #ffc107',
-                borderRadius: '6px'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.5rem' }}>
-                  <span style={{ fontSize: '1.2rem', marginRight: '0.5rem' }}>🔐</span>
-                  <h4 style={{ 
-                    margin: 0, 
-                    color: '#856404'
-                  }}>
-                    Sign Typed Data with Circle
-                  </h4>
-                </div>
-                
+              <div style={{ marginBottom: '1rem' }}>
                 <button 
                   type="button" 
                   onClick={signTypedData}
@@ -1062,15 +1024,18 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                     padding: '0.5rem 1rem',
                     borderRadius: '4px',
                     cursor: 'pointer',
-                    fontSize: '0.9rem'
+                    fontSize: '0.9rem',
+                    fontWeight: '500',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
                   }}
+                  title="Sign typed data with Circle"
                   disabled={loading || !state.walletApiKey || !state.entitySecret || !formData.walletId || !!typedDataError}
                 >
-                  {loading ? 'Signing...' : 'Sign with Circle'}
+                  {loading ? 'Signing...' : 'Sign Typed Data'}
                 </button>
                 
                 {(!state.walletApiKey || !state.entitySecret || !formData.walletId) && (
-                  <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#856404' }}>
+                  <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#718096' }}>
                     Configure Circle credentials in Settings to enable signing
                   </div>
                 )}
@@ -1117,17 +1082,6 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
             <legend style={{ fontWeight: 'bold', color: '#2d3748', fontSize: '1.1rem' }}>
               Circle StableFX Fund Execution
             </legend>
-            
-            <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f0f8ff', border: '1px solid #667eea', borderRadius: '6px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <span style={{ fontSize: '1.2rem' }}>🚀</span>
-                <strong style={{ color: '#2d3748' }}>Ready to Call Circle StableFX Fund API</strong>
-              </div>
-              <p style={{ margin: 0, fontSize: '0.95rem', color: '#718096' }}>
-                Call Circle's StableFX fund endpoint with {deliverType} type and {fundingMode} funding mode.
-                This will process the funding using the permit2 signature and typed data.
-              </p>
-            </div>
 
             {/* Request Body Preview */}
             <div style={{ marginBottom: '1.5rem' }}>
@@ -1182,26 +1136,13 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
             </div>
 
             {/* Execute Fund API Button */}
-            <div style={{ marginTop: '1rem' }}>
-              <button 
-                type="submit"
-                style={{ 
-                  backgroundColor: '#38a169', 
-                  color: 'white',
-                  border: 'none',
-                  padding: '0.5rem 1rem',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '0.9rem',
-                  fontWeight: '500',
-                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-                }}
-                title="Call Circle StableFX fund endpoint"
-                disabled={loading || !state.apiKey || !state.environment}
-              >
-                {loading ? 'Funding...' : 'Fund Trades'}
-              </button>
-            </div>
+            <button 
+              type="submit"
+              title="Call Circle StableFX fund endpoint"
+              disabled={loading || !state.apiKey || !state.environment}
+            >
+              {loading ? 'Funding...' : 'Fund Trades'}
+            </button>
           </fieldset>
         )}
 

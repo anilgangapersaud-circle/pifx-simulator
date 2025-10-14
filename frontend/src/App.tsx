@@ -23,6 +23,8 @@ export interface AppState {
   walletId: string; // Keep for backward compatibility
   makerWalletId: string;
   takerWalletId: string;
+  makerWalletAddress: string;
+  takerWalletAddress: string;
   currentFlowType?: 'taker' | 'maker'; // Track current flow type for UI theming
   // Token balance
   tokenBalance: any;
@@ -61,6 +63,8 @@ const SESSION_KEYS = {
   ENTITY_SECRET: 'circle_entity_secret',
   MAKER_WALLET_ID: 'circle_maker_wallet_id',
   TAKER_WALLET_ID: 'circle_taker_wallet_id',
+  MAKER_WALLET_ADDRESS: 'circle_maker_wallet_address',
+  TAKER_WALLET_ADDRESS: 'circle_taker_wallet_address',
   ENVIRONMENT: 'circle_environment'
 };
 
@@ -119,6 +123,8 @@ function AppContent() {
     walletId: legacyWalletId, // Keep for migration purposes only
     makerWalletId: makerWalletId,
     takerWalletId: takerWalletId,
+    makerWalletAddress: getFromSession(SESSION_KEYS.MAKER_WALLET_ADDRESS, ''),
+    takerWalletAddress: getFromSession(SESSION_KEYS.TAKER_WALLET_ADDRESS, ''),
     currentFlowType: 'taker', // Default to taker flow
     // Token balance
     tokenBalance: null,
@@ -261,6 +267,12 @@ function AppContent() {
     if (updates.takerWalletId !== undefined) {
       saveToSession(SESSION_KEYS.TAKER_WALLET_ID, updates.takerWalletId);
     }
+    if (updates.makerWalletAddress !== undefined) {
+      saveToSession(SESSION_KEYS.MAKER_WALLET_ADDRESS, updates.makerWalletAddress);
+    }
+    if (updates.takerWalletAddress !== undefined) {
+      saveToSession(SESSION_KEYS.TAKER_WALLET_ADDRESS, updates.takerWalletAddress);
+    }
     if (updates.environment !== undefined) {
       saveToSession(SESSION_KEYS.ENVIRONMENT, updates.environment);
     }
@@ -321,6 +333,10 @@ function AppContent() {
         onMakerWalletIdChange={(makerWalletId) => updateState({ makerWalletId })}
         takerWalletId={state.takerWalletId}
         onTakerWalletIdChange={(takerWalletId) => updateState({ takerWalletId })}
+        makerWalletAddress={state.makerWalletAddress}
+        onMakerWalletAddressChange={(makerWalletAddress) => updateState({ makerWalletAddress })}
+        takerWalletAddress={state.takerWalletAddress}
+        onTakerWalletAddressChange={(takerWalletAddress) => updateState({ takerWalletAddress })}
         environment={state.environment}
         onEnvironmentChange={(environment) => updateState({ environment })}
       />

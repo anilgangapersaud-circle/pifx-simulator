@@ -11,21 +11,13 @@ interface GetSignaturesFormProps {
 const GetSignaturesForm: React.FC<GetSignaturesFormProps> = ({ state, updateState, flowType }) => {
   const [formData, setFormData] = useState({
     tradeId: '',
-    selector: (flowType || 'taker') as 'taker' | 'maker',
     recipientAddress: ''
   });
   const [justAutoLoaded, setJustAutoLoaded] = useState(false);
   const manuallyChangedRef = useRef(false);
 
-  // Update selector when flowType prop changes
-  useEffect(() => {
-    if (flowType && flowType !== formData.selector) {
-      setFormData(prev => ({
-        ...prev,
-        selector: flowType
-      }));
-    }
-  }, [flowType, formData.selector]);
+  // Get the selector from flowType (defaults to 'taker' if not provided)
+  const selector = flowType || 'taker';
 
   // Auto-populate tradeId from Step 2 trade response (only if field is empty and not manually changed)
   useEffect(() => {
@@ -66,7 +58,7 @@ const GetSignaturesForm: React.FC<GetSignaturesFormProps> = ({ state, updateStat
       return;
     }
 
-    if (formData.selector === 'taker' && !formData.recipientAddress) {
+    if (selector === 'taker' && !formData.recipientAddress) {
       updateState({ error: 'Recipient Address is required for taker presign' });
       return;
     }
@@ -75,7 +67,7 @@ const GetSignaturesForm: React.FC<GetSignaturesFormProps> = ({ state, updateStat
 
     try {
       // Build the URL with selector
-      const url = `http://localhost:3001/api/signatures/presign/${formData.selector}/${formData.tradeId}`;
+      const url = `http://localhost:3001/api/signatures/presign/${selector}/${formData.tradeId}`;
       
       // Build params
       const params: any = {
@@ -84,7 +76,7 @@ const GetSignaturesForm: React.FC<GetSignaturesFormProps> = ({ state, updateStat
       };
 
       // Add recipientAddress if taker is selected
-      if (formData.selector === 'taker' && formData.recipientAddress) {
+      if (selector === 'taker' && formData.recipientAddress) {
         params.recipientAddress = formData.recipientAddress;
       }
 
@@ -94,7 +86,7 @@ const GetSignaturesForm: React.FC<GetSignaturesFormProps> = ({ state, updateStat
         loading: false,
         // Store presign request data for Step 3
         lastPresignTradeId: formData.tradeId,
-        lastPresignSelector: formData.selector,
+        lastPresignSelector: selector,
         lastPresignRecipientAddress: formData.recipientAddress
       });
     } catch (error: any) {
@@ -186,22 +178,6 @@ const GetSignaturesForm: React.FC<GetSignaturesFormProps> = ({ state, updateStat
       
       <form onSubmit={handleSubmit}>
         <div className="form-group">
-          <label>Selector:</label>
-          <select
-            name="selector"
-            value={formData.selector}
-            onChange={handleChange}
-            required
-          >
-            <option value="taker">Taker</option>
-            <option value="maker">Maker</option>
-          </select>
-          <small className="form-hint">
-            Choose between taker or maker presign data
-          </small>
-        </div>
-        
-        <div className="form-group">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
             <label>Trade ID:</label>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -245,7 +221,7 @@ const GetSignaturesForm: React.FC<GetSignaturesFormProps> = ({ state, updateStat
           </small>
         </div>
 
-        {formData.selector === 'taker' && (
+        {selector === 'taker' && (
           <div className="form-group">
             <label>Recipient Address:</label>
             <input

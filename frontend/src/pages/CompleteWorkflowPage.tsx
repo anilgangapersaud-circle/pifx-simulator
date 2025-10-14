@@ -191,9 +191,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
 
   const getStepStatus = (step: WorkflowStep) => {
     // Return 'hidden' for steps not relevant to current flow
-    if (flowType === 'taker') {
-      if (step === 'getTrades') return 'hidden';
-    } else {
+    if (flowType === 'maker') {
       if (step === 'quote' || step === 'trade') return 'hidden';
     }
 
@@ -425,16 +423,19 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               {renderStepIndicator('trade', 2, 'Trade')}
               <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
-              {renderStepIndicator('presign', 3, 'Presign')}
+              {renderStepIndicator('getTrades', 3, 'Get Trades')}
               <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
-              {renderStepIndicator('sign', 4, 'Sign')}
+              {renderStepIndicator('presign', 4, 'Presign')}
               <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
-              {renderStepIndicator('register', 5, 'Register')}
+              {renderStepIndicator('sign', 5, 'Sign')}
               <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
-              {renderStepIndicator('deliver', 6, 'Deliver')}
+              {renderStepIndicator('register', 6, 'Register')}
+              <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
+              
+              {renderStepIndicator('deliver', 7, 'Deliver')}
             </>
           ) : (
             <>
@@ -515,7 +516,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
           </div>
         )}
 
-        {/* Get Trades (Maker Flow) */}
+        {/* Get Trades */}
         {currentStep === 'getTrades' && (
           <div className="form-section" style={{ width: '100%' }}>
             <div style={{ 
@@ -529,7 +530,10 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
                 Get Available Trades
               </h2>
               <p style={{ marginBottom: '1rem', color: '#718096', textAlign: 'center' }}>
-                Retrieve trades where you can act as a maker. Filter by type: "maker" to see trades you can fulfill.
+                {flowType === 'taker' 
+                  ? 'Retrieve your created trades. Filter by type: "taker" to see trades where you are the taker.'
+                  : 'Retrieve trades where you can act as a maker. Filter by type: "maker" to see trades you can fulfill.'
+                }
               </p>
               
               <GetTradesForm state={state} updateState={handleGetTradesUpdate} flowType={flowType} />

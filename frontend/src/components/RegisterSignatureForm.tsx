@@ -11,7 +11,6 @@ interface RegisterSignatureFormProps {
 const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, updateState, flowType }) => {
   const [formData, setFormData] = useState({
     tradeId: '',
-    type: (flowType || 'taker') as 'taker' | 'maker',
     address: '',
     details: '',
     signature: ''
@@ -19,15 +18,23 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
   // Use global state for registration responses instead of local state
   const [justAutoLoaded, setJustAutoLoaded] = useState(false);
 
-  // Update type when flowType prop changes
+  // Get the type from flowType (defaults to 'taker' if not provided)
+  const type = flowType || 'taker';
+
+  // Auto-populate address based on type (maker/taker) from configured addresses
   useEffect(() => {
-    if (flowType && flowType !== formData.type) {
+    const configuredAddress = type === 'maker' 
+      ? state.makerWalletAddress 
+      : state.takerWalletAddress;
+    
+    if (configuredAddress && formData.address !== configuredAddress) {
       setFormData(prev => ({
         ...prev,
-        type: flowType
+        address: configuredAddress
       }));
+      console.log(`📍 Using configured ${type} wallet address:`, configuredAddress);
     }
-  }, [flowType, formData.type]);
+  }, [type, state.makerWalletAddress, state.takerWalletAddress, formData.address]);
 
   // Auto-populate form when signing response is available
   useEffect(() => {
@@ -45,17 +52,30 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
         signature = state.signingResponse.data.signature;
       }
       
+      // Extract tradeId and type from the stored presign request data
+      const autoTradeId = state.lastPresignTradeId || '';
+      const autoType = state.lastPresignSelector || 'taker';
+      
       // Get typed data from presign response
       const typedData = getTypedDataFromState();
       let address = '';
       let details = '';
       
-      // Priority 1: Use generated wallet address from Web3.js signing
-      if (state.signingResponse?.data?.wallet?.address) {
+      // Priority 1: Use configured wallet address based on type
+      const configuredAddress = autoType === 'maker' 
+        ? state.makerWalletAddress 
+        : state.takerWalletAddress;
+      
+      if (configuredAddress) {
+        address = configuredAddress;
+        console.log(`📍 Using configured ${autoType} wallet address:`, address);
+      }
+      // Priority 2: Use generated wallet address from Web3.js signing
+      else if (state.signingResponse?.data?.wallet?.address) {
         address = state.signingResponse.data.wallet.address;
         console.log('📱 Using generated wallet address:', address);
       }
-      // Priority 2: Fall back to recipient from typed data
+      // Priority 3: Fall back to recipient from typed data
       else if (typedData && typedData.message && typedData.message.recipient) {
         address = typedData.message.recipient;
         console.log('📝 Using recipient address from typed data:', address);
@@ -65,10 +85,6 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
         // Extract details from typedData.message (this becomes the details object)
         details = JSON.stringify(typedData.message, null, 2);
       }
-      
-      // Extract tradeId and type from the stored presign request data
-      const autoTradeId = state.lastPresignTradeId || '';
-      const autoType = state.lastPresignSelector || 'taker';
       
       if (signature && details) {
         setFormData(prev => ({
@@ -150,7 +166,7 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
     try {
       const requestBody = {
         tradeId: formData.tradeId,
-        type: formData.type,
+        type: type,
         address: formData.address,
         details: parsedDetails,
         signature: formData.signature
@@ -215,12 +231,22 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
       let details = '';
       let address = '';
       
-      // Priority 1: Use generated wallet address from Web3.js signing
-      if (state.signingResponse?.data?.wallet?.address) {
+      // Priority 1: Use configured wallet address based on type
+      const manualType = state.lastPresignSelector || type;
+      const configuredAddress = manualType === 'maker' 
+        ? state.makerWalletAddress 
+        : state.takerWalletAddress;
+      
+      if (configuredAddress) {
+        address = configuredAddress;
+        console.log(`📍 Manual load: Using configured ${manualType} wallet address:`, address);
+      }
+      // Priority 2: Use generated wallet address from Web3.js signing
+      else if (state.signingResponse?.data?.wallet?.address) {
         address = state.signingResponse.data.wallet.address;
         console.log('📱 Manual load: Using generated wallet address:', address);
       }
-      // Priority 2: Fall back to recipient from typed data
+      // Priority 3: Fall back to recipient from typed data
       else if (typedData && typedData.message && typedData.message.recipient) {
         address = typedData.message.recipient;
         console.log('📝 Manual load: Using recipient address from typed data:', address);
@@ -235,8 +261,7 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
         signature: signature,
         details: details,
         address: address,
-        tradeId: state.lastPresignTradeId || prev.tradeId,
-        type: state.lastPresignSelector || prev.type
+        tradeId: state.lastPresignTradeId || prev.tradeId
       }));
       
       // Clear previous responses
@@ -274,9 +299,7 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
               ? 'Fresh signature data loaded from the signing response. Ready to register!'
               : 'The signature and details were automatically loaded from Step 4. Ready to submit!'
             }
-            {state.signingResponse?.data?.wallet?.address && (
-              <><br />🧪 <strong>Using generated wallet address from Web3.js signing</strong></>
-            )}
+            <br />📍 <strong>Using configured {type} wallet address from Settings</strong>
           </small>
         </div>
       )}
@@ -303,34 +326,13 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
         </div>
 
         <div className="form-group">
-          <label htmlFor="type">Type *</label>
-          <select
-            id="type"
-            value={formData.type}
-            onChange={(e) => handleChange('type', e.target.value)}
-            required
-            style={{
-              transition: 'border-color 0.3s ease, box-shadow 0.3s ease',
-              borderColor: justAutoLoaded ? '#38a169' : undefined,
-              boxShadow: justAutoLoaded ? '0 0 0 3px rgba(56, 161, 105, 0.1)' : undefined
-            }}
-          >
-            <option value="taker">Taker</option>
-            <option value="maker">Maker</option>
-          </select>
-          <small className="form-hint">
-            The same selector used in the presign request
-          </small>
-        </div>
-
-        <div className="form-group">
           <label htmlFor="address">Address *</label>
           <input
             type="text"
             id="address"
             value={formData.address}
             onChange={(e) => handleChange('address', e.target.value)}
-            placeholder="Recipient address from typed data"
+            placeholder={`Configured ${type} wallet address (0x...)`}
             required
             style={{
               transition: 'border-color 0.3s ease, box-shadow 0.3s ease',
@@ -338,19 +340,14 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
               boxShadow: justAutoLoaded ? '0 0 0 3px rgba(56, 161, 105, 0.1)' : undefined
             }}
           />
-          {state.signingResponse?.data?.wallet?.address === formData.address && (
+          {formData.address && (
             <small style={{ color: '#319795', fontWeight: 'bold' }}>
-              🧪 Using generated wallet address from Step 4 Web3.js signing
-            </small>
-          )}
-          {state.signingResponse?.data?.wallet?.address !== formData.address && formData.address && (
-            <small className="form-hint">
-              The recipient address from the typed data message
+              📍 Using configured {type} wallet address from Settings
             </small>
           )}
           {!formData.address && (
             <small className="form-hint">
-              The recipient address from the typed data message
+              Configure {type} wallet address in Settings
             </small>
           )}
         </div>
