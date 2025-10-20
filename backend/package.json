@@ -14,6 +14,7 @@
   "description": "",
   "dependencies": {
     "@circle-fin/developer-controlled-wallets": "^8.4.0",
+    "@circle-fin/stablefx-sdk": "file:../../stablefx-node-sdk",
     "axios": "^1.11.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",

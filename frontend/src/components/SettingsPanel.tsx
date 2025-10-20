@@ -13,6 +13,10 @@ interface SettingsPanelProps {
   onMakerWalletIdChange: (makerWalletId: string) => void;
   takerWalletId: string;
   onTakerWalletIdChange: (takerWalletId: string) => void;
+  makerWalletAddress: string;
+  onMakerWalletAddressChange: (makerWalletAddress: string) => void;
+  takerWalletAddress: string;
+  onTakerWalletAddressChange: (takerWalletAddress: string) => void;
   environment: 'smokebox' | 'sandbox';
   onEnvironmentChange: (environment: 'smokebox' | 'sandbox') => void;
 }
@@ -30,6 +34,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onMakerWalletIdChange,
   takerWalletId,
   onTakerWalletIdChange,
+  makerWalletAddress,
+  onMakerWalletAddressChange,
+  takerWalletAddress,
+  onTakerWalletAddressChange,
   environment,
   onEnvironmentChange
 }) => {
@@ -70,13 +78,13 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
           </div>
           
           <div className="settings-group">
-            <label htmlFor="api-key">Circle CPS API Key</label>
+            <label htmlFor="api-key">Circle StableFX API Key</label>
             <input
               id="api-key"
               type="password"
               value={apiKey}
               onChange={(e) => onApiKeyChange(e.target.value)}
-              placeholder="Enter your Circle CPS API key"
+              placeholder="Enter your Circle StableFX API key"
               className="settings-input"
             />
             <p className="settings-help">
@@ -141,6 +149,36 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
             />
             <p className="settings-help">
               Used for taker flow operations (auto-populated when taker flow is selected)
+            </p>
+          </div>
+
+          <div className="settings-group">
+            <label htmlFor="maker-wallet-address">Maker Wallet Address</label>
+            <input
+              id="maker-wallet-address"
+              type="text"
+              value={makerWalletAddress}
+              onChange={(e) => onMakerWalletAddressChange(e.target.value)}
+              placeholder="Enter maker wallet address (0x...)"
+              className="settings-input"
+            />
+            <p className="settings-help">
+              Blockchain address for the maker wallet
+            </p>
+          </div>
+
+          <div className="settings-group">
+            <label htmlFor="taker-wallet-address">Taker Wallet Address</label>
+            <input
+              id="taker-wallet-address"
+              type="text"
+              value={takerWalletAddress}
+              onChange={(e) => onTakerWalletAddressChange(e.target.value)}
+              placeholder="Enter taker wallet address (0x...)"
+              className="settings-input"
+            />
+            <p className="settings-help">
+              Blockchain address for the taker wallet
             </p>
           </div>
 

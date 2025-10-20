@@ -211,29 +211,8 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
   };
 
   const approvePermit2 = async () => {
-    // Extract token address from the typed data
-    let tokenAddress = '';
-    try {
-      if (editableTypedData) {
-        const typedDataObj = JSON.parse(editableTypedData);
-        const permitData = typedDataObj?.message;
-        if (permitData?.permitted) {
-          if (Array.isArray(permitData.permitted)) {
-            // Batch mode - use first token
-            tokenAddress = permitData.permitted[0]?.token || '';
-          } else {
-            // Single mode
-            tokenAddress = permitData.permitted.token || '';
-          }
-        }
-      }
-    } catch (err) {
-      setPermit2ApprovalError('Cannot extract token address from typed data');
-      return;
-    }
-
-    if (!tokenAddress) {
-      setPermit2ApprovalError('No token address found in typed data. Get typed data first.');
+    if (!editableTypedData) {
+      setPermit2ApprovalError('No typed data found. Get typed data first.');
       return;
     }
 
@@ -251,7 +230,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
         walletApiKey: state.walletApiKey,
         entitySecret: state.entitySecret,
         walletId: formData.walletId,
-        tokenAddress: tokenAddress,
+        typedData: editableTypedData,
         refId: `permit2-approval-${Date.now()}`
       };
 
@@ -438,11 +417,11 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
     // Validation based on signing method
     if (signingMethod === 'circle') {
       if (!state.apiKey) {
-        setError('API Key is required for Circle CPS fund API');
+        setError('API Key is required for Circle StableFX fund API');
         return;
       }
       if (!state.environment) {
-        setError('Environment selection is required for Circle CPS fund API');
+        setError('Environment selection is required for Circle StableFX fund API');
         return;
       }
     } else {
@@ -474,10 +453,10 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       const permitDataFromTypedData = typedDataObj?.message;
 
       if (signingMethod === 'circle') {
-        // Circle CPS Fund API implementation
+        // Circle StableFX Fund API implementation
         if (deliverType === 'taker') {
           if (batchMode) {
-            // Batch taker deliver - use Circle CPS fund API
+            // Batch taker deliver - use Circle StableFX fund API
             payload = {
               environment: state.environment,
               apiKey: state.apiKey,
@@ -488,7 +467,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
             };
             endpoint = 'http://localhost:3001/api/takerBatchDeliver';
           } else {
-            // Single taker deliver - use Circle CPS fund API
+            // Single taker deliver - use Circle StableFX fund API
             payload = {
               environment: state.environment,
               apiKey: state.apiKey,
@@ -500,9 +479,9 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
             endpoint = 'http://localhost:3001/api/takerDeliver';
           }
         } else {
-          // Maker deliver logic - use Circle CPS fund API
+          // Maker deliver logic - use Circle StableFX fund API
           if (fundingMode === 'net') {
-            // Net delivery always uses batch format (multiple trade IDs) - use Circle CPS fund API
+            // Net delivery always uses batch format (multiple trade IDs) - use Circle StableFX fund API
             payload = {
               environment: state.environment,
               apiKey: state.apiKey,
@@ -513,7 +492,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
             };
             endpoint = 'http://localhost:3001/api/makerNetDeliver';
           } else if (batchMode) {
-            // Batch maker deliver (gross) - use Circle CPS fund API
+            // Batch maker deliver (gross) - use Circle StableFX fund API
             payload = {
               environment: state.environment,
               apiKey: state.apiKey,
@@ -524,7 +503,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
             };
             endpoint = 'http://localhost:3001/api/makerBatchDeliver';
           } else {
-            // Single maker deliver (gross) - use Circle CPS fund API
+            // Single maker deliver (gross) - use Circle StableFX fund API
             payload = {
               environment: state.environment,
               apiKey: state.apiKey,
@@ -694,9 +673,6 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
 
   return (
     <div className="form-container" style={{ maxWidth: 'none', width: '100%', padding: '2rem 3rem' }}>
-      <h2>{deliverType === 'taker' ? 'Taker' : 'Maker'} Funding via Circle CPS API</h2>
-      <p>Get EIP-712 typed data for Permit2 funding from Circle's API, sign it with Circle, and execute funding via Circle's CPS fund endpoint. This replaces the contract execution with a direct API call.</p>
-      
       {/* Deliver Type Toggle - Only show when not in workflow mode */}
       {!flowType && (
         <div style={{ marginBottom: '1.5rem' }}>
@@ -746,35 +722,6 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
           </p>
         </div>
       )}
-
-
-
-      {/* Info about Circle CPS fund API */}
-      <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f0f8ff', border: '1px solid #667eea', borderRadius: '6px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-          <span style={{ fontSize: '1.2rem' }}>🔄</span>
-          <span style={{ fontWeight: 'bold', color: '#667eea' }}>Circle CPS Fund API Integration</span>
-        </div>
-        <p style={{ margin: 0, fontSize: '0.9rem', color: '#4a5568' }}>
-          This form uses Circle's CPS fund endpoint instead of contract execution. It retrieves EIP-712 typed data, signs it, and calls the fund API with permit2, signature, type, and fundingMode parameters.
-        </p>
-      </div>
-
-      {/* Permit2 Approval Info */}
-      <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#fff3cd', border: '1px solid #ffc107', borderRadius: '6px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-          <span style={{ fontSize: '1.2rem' }}>🔓</span>
-          <span style={{ fontWeight: 'bold', color: '#856404' }}>Permit2 Approval Required</span>
-        </div>
-        <p style={{ margin: 0, fontSize: '0.9rem', color: '#4a5568' }}>
-          Before using Permit2 for token transfers, you need to approve the Permit2 contract to spend your tokens. 
-          This is a one-time approval per token that allows Permit2 to transfer tokens on your behalf using signatures instead of separate approval transactions.
-        </p>
-      </div>
-      
-
-
-
 
       <form onSubmit={handleSubmit} className="api-form" style={{ width: '100%' }}>
 
@@ -878,7 +825,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                   title="Approve Permit2 contract to spend tokens"
                   disabled={permit2ApprovalLoading || !editableTypedData || !state.walletApiKey || !state.entitySecret || !formData.walletId}
                 >
-                  {permit2ApprovalResponse ? '✅ Approved' : (permit2ApprovalLoading ? 'Approving...' : '🔓 Approve Permit2')}
+                  {permit2ApprovalResponse ? 'Approved' : (permit2ApprovalLoading ? 'Approving...' : 'Approve Permit2')}
                 </button>
               </div>
               
@@ -901,13 +848,13 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                 
                 {permit2ApprovalError && (
                   <div style={{ fontSize: '0.8rem', color: '#e53e3e' }}>
-                    ❌ {permit2ApprovalError}
+                    {permit2ApprovalError}
                   </div>
                 )}
                 
                 {permit2ApprovalResponse && (
                   <div style={{ fontSize: '0.8rem', color: '#38a169', fontWeight: '500' }}>
-                    ✅ Permit2 approval transaction ID: <code style={{ backgroundColor: '#f0fff4', padding: '0.25rem', borderRadius: '3px' }}>{permit2ApprovalResponse.id || permit2ApprovalResponse.data?.id || 'Success'}</code>
+                    Permit2 approval transaction ID: <code style={{ backgroundColor: '#f0fff4', padding: '0.25rem', borderRadius: '3px' }}>{permit2ApprovalResponse.id || permit2ApprovalResponse.data?.id || 'Success'}</code>
                   </div>
                 )}
               </div>
@@ -1066,24 +1013,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
             
             {/* Sign Typed Data Button - Only show if we have editable typed data and no signature */}
             {editableTypedData && !formData.signature && (
-              <div style={{ 
-                marginBottom: '1rem', 
-                textAlign: 'center',
-                padding: '1rem',
-                backgroundColor: '#fff3cd',
-                border: '2px solid #ffc107',
-                borderRadius: '6px'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.5rem' }}>
-                  <span style={{ fontSize: '1.2rem', marginRight: '0.5rem' }}>🔐</span>
-                  <h4 style={{ 
-                    margin: 0, 
-                    color: '#856404'
-                  }}>
-                    Sign Typed Data with Circle
-                  </h4>
-                </div>
-                
+              <div style={{ marginBottom: '1rem' }}>
                 <button 
                   type="button" 
                   onClick={signTypedData}
@@ -1094,15 +1024,18 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                     padding: '0.5rem 1rem',
                     borderRadius: '4px',
                     cursor: 'pointer',
-                    fontSize: '0.9rem'
+                    fontSize: '0.9rem',
+                    fontWeight: '500',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
                   }}
+                  title="Sign typed data with Circle"
                   disabled={loading || !state.walletApiKey || !state.entitySecret || !formData.walletId || !!typedDataError}
                 >
-                  {loading ? 'Signing...' : 'Sign with Circle'}
+                  {loading ? 'Signing...' : 'Sign Typed Data'}
                 </button>
                 
                 {(!state.walletApiKey || !state.entitySecret || !formData.walletId) && (
-                  <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#856404' }}>
+                  <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#718096' }}>
                     Configure Circle credentials in Settings to enable signing
                   </div>
                 )}
@@ -1143,23 +1076,12 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
           </div>
         </fieldset>
 
-        {/* Circle CPS Fund Execution Section */}
+        {/* Circle StableFX Fund Execution Section */}
         {formData.signature && (
           <fieldset style={{ border: '1px solid #e2e8f0', borderRadius: '6px', padding: '2rem', marginBottom: '2rem' }}>
             <legend style={{ fontWeight: 'bold', color: '#2d3748', fontSize: '1.1rem' }}>
-              Circle CPS Fund Execution
+              Circle StableFX Fund Execution
             </legend>
-            
-            <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f0f8ff', border: '1px solid #667eea', borderRadius: '6px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <span style={{ fontSize: '1.2rem' }}>🚀</span>
-                <strong style={{ color: '#2d3748' }}>Ready to Call Circle CPS Fund API</strong>
-              </div>
-              <p style={{ margin: 0, fontSize: '0.95rem', color: '#718096' }}>
-                Call Circle's CPS fund endpoint with {deliverType} type and {fundingMode} funding mode.
-                This will process the funding using the permit2 signature and typed data.
-              </p>
-            </div>
 
             {/* Request Body Preview */}
             <div style={{ marginBottom: '1.5rem' }}>
@@ -1171,7 +1093,7 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
                 <label style={{ fontWeight: 'bold', color: '#4a5568', fontSize: '0.9rem', display: 'block', marginBottom: '0.5rem' }}>
                   Complete Request Body
                   <span style={{ fontSize: '0.8rem', color: '#667eea', marginLeft: '0.5rem' }}>
-                    (what will be sent to Circle CPS fund API)
+                    (what will be sent to Circle StableFX fund API)
                   </span>
                 </label>
                 <textarea
@@ -1214,373 +1136,19 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
             </div>
 
             {/* Execute Fund API Button */}
-            <div style={{ 
-              marginTop: '2rem',
-              textAlign: 'center',
-              padding: '1.5rem',
-              backgroundColor: '#f0fff4',
-              border: '2px solid #38a169',
-              borderRadius: '8px'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
-                <span style={{ fontSize: '1.5rem', marginRight: '0.5rem' }}>🚀</span>
-                <h3 style={{ 
-                  margin: 0, 
-                  color: '#38a169'
-                }}>
-                  Execute Circle CPS Fund
-                </h3>
-              </div>
-              
-              <div style={{ marginBottom: '1rem', fontSize: '0.9rem', color: '#4a5568' }}>
-                <strong>Type:</strong> {deliverType} | <strong>Funding Mode:</strong> {fundingMode}
-              </div>
-              
-              <button 
-                type="submit"
-                className="example-button"
-                style={{ 
-                  backgroundColor: '#38a169', 
-                  fontWeight: 'bold',
-                  padding: '0.75rem 2rem',
-                  fontSize: '1.1rem',
-                  borderRadius: '6px',
-                  border: 'none',
-                  color: 'white',
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 6px rgba(56, 161, 105, 0.3)',
-                  opacity: 1
-                }}
-                title="Call Circle CPS fund endpoint"
-                disabled={loading || !state.apiKey || !state.environment}
-              >
-                {loading ? 'Calling Circle API...' : `🚀 Execute CPS Fund (${deliverType}/${fundingMode})`}
-              </button>
-              
-              {(!state.apiKey || !state.environment) && (
-                <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#718096' }}>
-                  {!state.apiKey ? 'Configure API Key in Settings' :
-                   !state.environment ? 'Select Environment in Settings' : ''
-                  }
-                </div>
-              )}
-            </div>
+            <button 
+              type="submit"
+              title="Call Circle StableFX fund endpoint"
+              disabled={loading || !state.apiKey || !state.environment}
+            >
+              {loading ? 'Funding...' : 'Fund Trades'}
+            </button>
           </fieldset>
         )}
 
       </form>
-
-      {/* Response Display */}
-      {(response || error || loading) && showResponseDisplay && (
-        <div style={{ 
-          marginTop: '2rem', 
-          padding: '2rem', 
-          border: '1px solid #e2e8f0', 
-          borderRadius: '12px',
-          backgroundColor: '#f9f9f9',
-          minHeight: '400px',
-          maxHeight: '800px',
-          overflowY: 'auto'
-        }}>
-          <h3 style={{ margin: '0 0 1rem 0', color: '#2d3748' }}>Response</h3>
-          
-          {loading && (
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '0.5rem', 
-              color: '#3182ce',
-              fontSize: '1rem'
-            }}>
-              <div style={{ 
-                width: '20px', 
-                height: '20px', 
-                border: '2px solid #3182ce', 
-                borderTop: '2px solid transparent', 
-                borderRadius: '50%', 
-                animation: 'spin 1s linear infinite' 
-              }}></div>
-              Loading...
-            </div>
-          )}
-
-          {error && !loading && (
-            <div style={{ 
-              padding: '1rem', 
-              backgroundColor: '#fed7d7', 
-              border: '1px solid #e53e3e', 
-              borderRadius: '6px',
-              marginBottom: '1rem'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
-                <span style={{ fontSize: '1.2rem' }}>❌</span>
-                <div>
-                  <strong style={{ color: '#e53e3e' }}>Error:</strong>
-                  <div style={{ marginTop: '0.5rem', color: '#2d3748' }}>
-                    {error}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {response && !loading && (
-            <div style={{ 
-              padding: '1rem', 
-              backgroundColor: '#f0fff4', 
-              border: '1px solid #38a169', 
-              borderRadius: '6px',
-              marginBottom: '1rem'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                <span style={{ fontSize: '1.2rem' }}>✅</span>
-                <strong style={{ color: '#38a169' }}>Success!</strong>
-              </div>
-              
-              {/* Navigation message */}
-              {response._navigating && (
-                <div style={{ 
-                  padding: '1rem', 
-                  backgroundColor: '#e6fffa', 
-                  border: '2px solid #319795', 
-                  borderRadius: '6px',
-                  marginBottom: '1rem',
-                  textAlign: 'center'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-                    <span style={{ fontSize: '1.2rem' }}>🚀</span>
-                    <strong style={{ color: '#319795' }}>{response._navigationMessage}</strong>
-                  </div>
-                  <div style={{ 
-                    marginTop: '0.5rem', 
-                    fontSize: '0.9rem', 
-                    color: '#2c5aa0' 
-                  }}>
-                    Taking you to the complete workflow page...
-                  </div>
-                </div>
-              )}
-              
-              {/* Special handling for Circle CPS Fund API response */}
-              {response && !response.details?.signingMethod && (
-                <div style={{ 
-                  padding: '1rem', 
-                  backgroundColor: '#e6fffa', 
-                  border: '1px solid #319795', 
-                  borderRadius: '6px',
-                  marginBottom: '1rem'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                    <span style={{ fontSize: '1.1rem' }}>🚀</span>
-                    <strong style={{ color: '#319795' }}>Circle CPS Fund API Response</strong>
-                  </div>
-                  
-                  <div style={{ fontSize: '0.9rem', color: '#2c5aa0', marginBottom: '1rem' }}>
-                    <strong>Endpoint:</strong> POST /v1/exchange/stablefx/fund<br/>
-                    <strong>Type:</strong> {deliverType}<br/>
-                    <strong>Funding Mode:</strong> {fundingMode}<br/>
-                    <strong>Status:</strong> {response.status || 'Success'}
-                  </div>
-
-                  {/* Show key response fields */}
-                  {response.id && (
-                    <div style={{ marginBottom: '1rem' }}>
-                      <strong style={{ color: '#319795' }}>📋 Response Details:</strong>
-                      <div style={{ 
-                        backgroundColor: '#f0f8ff', 
-                        border: '1px solid #90cdf4', 
-                        borderRadius: '4px', 
-                        padding: '0.75rem',
-                        fontFamily: 'monospace',
-                        fontSize: '0.8rem',
-                        marginTop: '0.5rem'
-                      }}>
-                        {response.id && <div><strong>ID:</strong> {response.id}</div>}
-                        {response.state && <div><strong>State:</strong> {response.state}</div>}
-                        {response.txHash && <div><strong>Transaction Hash:</strong> {response.txHash}</div>}
-                        {response.blockNumber && <div><strong>Block Number:</strong> {response.blockNumber}</div>}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-              
-              {/* Special handling for permit signature generation */}
-              {response.details?.signingMethod && (
-                <div style={{ 
-                  padding: '1rem', 
-                  backgroundColor: '#e6fffa', 
-                  border: '1px solid #319795', 
-                  borderRadius: '6px',
-                  marginBottom: '1rem'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                    <span style={{ fontSize: '1.1rem' }}>🔐</span>
-                    <strong style={{ color: '#319795' }}>Permit Signature Generated</strong>
-                  </div>
-                  
-                  <div style={{ fontSize: '0.9rem', color: '#2c5aa0', marginBottom: '1rem' }}>
-                    <strong>Method:</strong> {response.details.signingMethod}<br/>
-                    <strong>Signer:</strong> {response.details.signerInfo}<br/>
-                    {response.details.permitData && (
-                      <>
-                        <strong>Token:</strong> {response.details.permitData.permitted.token}<br/>
-                        <strong>Amount:</strong> {response.details.permitData.permitted.amount}<br/>
-                        <strong>Deadline:</strong> {new Date(response.details.permitData.deadline * 1000).toLocaleString()}
-                      </>
-                    )}
-                  </div>
-
-                  {/* Show the signature */}
-                  <div style={{ marginBottom: '1rem' }}>
-                    <strong style={{ color: '#319795' }}>📝 Generated Signature:</strong>
-                    <div style={{ 
-                      backgroundColor: '#f0f8ff', 
-                      border: '1px solid #90cdf4', 
-                      borderRadius: '4px', 
-                      padding: '0.75rem',
-                      fontFamily: 'monospace',
-                      fontSize: '0.8rem',
-                      wordBreak: 'break-all',
-                      marginTop: '0.5rem'
-                    }}>
-                      {response.details.signature}
-                    </div>
-                  </div>
-
-                  {/* Show the typed data that was signed */}
-                  {response.details.typedData && (
-                    <details style={{ marginTop: '1rem' }}>
-                      <summary style={{ 
-                        cursor: 'pointer', 
-                        fontWeight: 'bold', 
-                        color: '#319795',
-                        marginBottom: '0.5rem'
-                      }}>
-                        📋 EIP-712 Typed Data (Signed)
-                      </summary>
-                      <div style={{ marginTop: '0.5rem' }}>
-                        {/* Domain */}
-                        <div style={{ marginBottom: '1rem' }}>
-                          <strong style={{ color: '#2d3748' }}>Domain:</strong>
-                          <pre style={{ 
-                            backgroundColor: '#f8f9fa', 
-                            border: '1px solid #e2e8f0', 
-                            borderRadius: '4px', 
-                            padding: '0.5rem', 
-                            fontSize: '0.8rem',
-                            marginTop: '0.25rem',
-                            margin: '0.25rem 0 0 0'
-                          }}>
-                            {JSON.stringify(response.details.typedData.domain, null, 2)}
-                          </pre>
-                        </div>
-
-                        {/* Types */}
-                        <div style={{ marginBottom: '1rem' }}>
-                          <strong style={{ color: '#2d3748' }}>Types:</strong>
-                          <pre style={{ 
-                            backgroundColor: '#f8f9fa', 
-                            border: '1px solid #e2e8f0', 
-                            borderRadius: '4px', 
-                            padding: '0.5rem', 
-                            fontSize: '0.8rem',
-                            marginTop: '0.25rem',
-                            margin: '0.25rem 0 0 0'
-                          }}>
-                            {JSON.stringify(response.details.typedData.types, null, 2)}
-                          </pre>
-                        </div>
-
-                        {/* Message */}
-                        <div style={{ marginBottom: '1rem' }}>
-                          <strong style={{ color: '#2d3748' }}>Message:</strong>
-                          <pre style={{ 
-                            backgroundColor: '#f8f9fa', 
-                            border: '1px solid #e2e8f0', 
-                            borderRadius: '4px', 
-                            padding: '0.5rem', 
-                            fontSize: '0.8rem',
-                            marginTop: '0.25rem',
-                            margin: '0.25rem 0 0 0'
-                          }}>
-                            {JSON.stringify(response.details.typedData.message, null, 2)}
-                          </pre>
-                        </div>
-
-                        {/* Primary Type */}
-                        <div>
-                          <strong style={{ color: '#2d3748' }}>Primary Type:</strong>
-                          <code style={{ 
-                            backgroundColor: '#f0f8ff', 
-                            padding: '0.25rem 0.5rem',
-                            borderRadius: '3px',
-                            marginLeft: '0.5rem',
-                            fontSize: '0.85rem'
-                          }}>
-                            {response.details.typedData.primaryType}
-                          </code>
-                        </div>
-                      </div>
-                    </details>
-                  )}
-                </div>
-              )}
-
-              {/* Transaction details */}
-              {response.id && (
-                <div style={{ 
-                  padding: '1rem', 
-                  backgroundColor: '#fff', 
-                  border: '1px solid #e2e8f0', 
-                  borderRadius: '6px',
-                  marginBottom: '1rem'
-                }}>
-                  <strong style={{ color: '#2d3748' }}>Transaction Details:</strong>
-                  <div style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>
-                    <strong>ID:</strong> <code>{response.id}</code><br/>
-                    <strong>State:</strong> <code>{response.state}</code>
-                    {response.txHash && (
-                      <>
-                        <br/>
-                        <strong>Hash:</strong> <code>{response.txHash}</code>
-                      </>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Raw response */}
-              <details style={{ marginTop: '1rem' }}>
-                <summary style={{ 
-                  cursor: 'pointer', 
-                  fontWeight: 'bold', 
-                  color: '#4a5568',
-                  marginBottom: '0.5rem'
-                }}>
-                  📄 Raw Response Data
-                </summary>
-                <pre style={{ 
-                  backgroundColor: '#f8f9fa', 
-                  border: '1px solid #e2e8f0', 
-                  borderRadius: '4px', 
-                  padding: '1rem', 
-                  overflow: 'auto',
-                  fontSize: '0.85rem',
-                  whiteSpace: 'pre-wrap',
-                  marginTop: '0.5rem',
-                  maxHeight: '400px',
-                  minHeight: '200px'
-                }}>
-                  {JSON.stringify(response, null, 2)}
-                </pre>
-              </details>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 };
 
-export default TakerDeliverForm;
+export default TakerDeliverForm; 

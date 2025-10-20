@@ -11,10 +11,8 @@ import GetTradesPage from './pages/GetTradesPage';
 import GetTradeByIdPage from './pages/GetTradeByIdPage';
 import GetSignaturesPage from './pages/GetSignaturesPage';
 import ContractExecutionPage from './pages/ContractExecutionPage';
-import BreachTradePage from './pages/BreachTradePage';
 import TakerDeliverPage from './pages/TakerDeliverPage';
 import CompleteWorkflowPage from './pages/CompleteWorkflowPage';
-import MakerNetBalancesPage from './pages/MakerNetBalancesPage';
 
 
 export interface AppState {
@@ -25,7 +23,8 @@ export interface AppState {
   walletId: string; // Keep for backward compatibility
   makerWalletId: string;
   takerWalletId: string;
-  signingMethod: 'circle' | 'web3';
+  makerWalletAddress: string;
+  takerWalletAddress: string;
   currentFlowType?: 'taker' | 'maker'; // Track current flow type for UI theming
   // Token balance
   tokenBalance: any;
@@ -64,8 +63,9 @@ const SESSION_KEYS = {
   ENTITY_SECRET: 'circle_entity_secret',
   MAKER_WALLET_ID: 'circle_maker_wallet_id',
   TAKER_WALLET_ID: 'circle_taker_wallet_id',
-  ENVIRONMENT: 'circle_environment',
-  SIGNING_METHOD: 'circle_signing_method'
+  MAKER_WALLET_ADDRESS: 'circle_maker_wallet_address',
+  TAKER_WALLET_ADDRESS: 'circle_taker_wallet_address',
+  ENVIRONMENT: 'circle_environment'
 };
 
 const getFromSession = (key: string, defaultValue: any) => {
@@ -102,7 +102,6 @@ const clearSession = () => {
     sessionStorage.removeItem(SESSION_KEYS.MAKER_WALLET_ID);
     sessionStorage.removeItem(SESSION_KEYS.TAKER_WALLET_ID);
     sessionStorage.removeItem(SESSION_KEYS.ENVIRONMENT);
-    sessionStorage.removeItem(SESSION_KEYS.SIGNING_METHOD);
   } catch (error) {
     console.warn('Failed to clear session storage:', error);
   }
@@ -124,7 +123,8 @@ function AppContent() {
     walletId: legacyWalletId, // Keep for migration purposes only
     makerWalletId: makerWalletId,
     takerWalletId: takerWalletId,
-    signingMethod: getFromSession(SESSION_KEYS.SIGNING_METHOD, 'circle'),
+    makerWalletAddress: getFromSession(SESSION_KEYS.MAKER_WALLET_ADDRESS, ''),
+    takerWalletAddress: getFromSession(SESSION_KEYS.TAKER_WALLET_ADDRESS, ''),
     currentFlowType: 'taker', // Default to taker flow
     // Token balance
     tokenBalance: null,
@@ -175,6 +175,7 @@ function AppContent() {
   const getTokenImage = (symbol: string, tokenAddress?: string) => {
     const tokenImages: { [key: string]: string } = {
       'USDC': 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ43MuDqq54iD1ZCRL_uthAPkfwSSL-J5qI_Q&s',
+      'USDC-TESTNET': 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ43MuDqq54iD1ZCRL_uthAPkfwSSL-J5qI_Q&s',
       'EURC': 'https://assets.coingecko.com/coins/images/26045/standard/euro.png',
       'ETH': 'https://www.citypng.com/public/uploads/preview/ethereum-eth-round-logo-icon-png-701751694969815akblwl2552.png',
       'ETH-SEPOLIA': 'https://www.citypng.com/public/uploads/preview/ethereum-eth-round-logo-icon-png-701751694969815akblwl2552.png'
@@ -266,11 +267,14 @@ function AppContent() {
     if (updates.takerWalletId !== undefined) {
       saveToSession(SESSION_KEYS.TAKER_WALLET_ID, updates.takerWalletId);
     }
+    if (updates.makerWalletAddress !== undefined) {
+      saveToSession(SESSION_KEYS.MAKER_WALLET_ADDRESS, updates.makerWalletAddress);
+    }
+    if (updates.takerWalletAddress !== undefined) {
+      saveToSession(SESSION_KEYS.TAKER_WALLET_ADDRESS, updates.takerWalletAddress);
+    }
     if (updates.environment !== undefined) {
       saveToSession(SESSION_KEYS.ENVIRONMENT, updates.environment);
-    }
-    if (updates.signingMethod !== undefined) {
-      saveToSession(SESSION_KEYS.SIGNING_METHOD, updates.signingMethod);
     }
   };
 
@@ -309,11 +313,9 @@ function AppContent() {
           <Route path="/trades" element={<TradesPage state={state} updateState={updateState} />} />
           <Route path="/signatures" element={<SignaturesPage state={state} updateState={updateState} />} />
           <Route path="/contract-execution" element={<ContractExecutionPage state={state} updateState={updateState} />} />
-          <Route path="/breach-trade" element={<BreachTradePage state={state} updateState={updateState} />} />
           <Route path="/taker-deliver" element={<TakerDeliverPage state={state} updateState={updateState} />} />
           <Route path="/get-trades" element={<GetTradesPage state={state} updateState={updateState} />} />
           <Route path="/get-trade" element={<GetTradeByIdPage state={state} updateState={updateState} />} />
-          <Route path="/maker-net-balances" element={<MakerNetBalancesPage state={state} updateState={updateState} />} />
           <Route path="/complete-workflow" element={<CompleteWorkflowPage state={state} updateState={updateState} />} />
         </Routes>
       </main>
@@ -331,6 +333,10 @@ function AppContent() {
         onMakerWalletIdChange={(makerWalletId) => updateState({ makerWalletId })}
         takerWalletId={state.takerWalletId}
         onTakerWalletIdChange={(takerWalletId) => updateState({ takerWalletId })}
+        makerWalletAddress={state.makerWalletAddress}
+        onMakerWalletAddressChange={(makerWalletAddress) => updateState({ makerWalletAddress })}
+        takerWalletAddress={state.takerWalletAddress}
+        onTakerWalletAddressChange={(takerWalletAddress) => updateState({ takerWalletAddress })}
         environment={state.environment}
         onEnvironmentChange={(environment) => updateState({ environment })}
       />
@@ -388,7 +394,6 @@ function AppContent() {
               </p>
             ) : state.tokenBalance ? (
               <div>
-                  <strong>Token Balances ({state.tokenBalance.totalTokens}):</strong>
                   {state.tokenBalance.tokens && state.tokenBalance.tokens.length > 0 ? (
                     <div style={{ marginTop: '0.5rem', maxHeight: '200px', overflowY: 'auto' }}>
                       {state.tokenBalance.tokens.map((tokenBalance: any, index: number) => (

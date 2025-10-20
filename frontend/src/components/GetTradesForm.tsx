@@ -10,19 +10,11 @@ interface GetTradesFormProps {
 
 const GetTradesForm: React.FC<GetTradesFormProps> = ({ state, updateState, flowType }) => {
   const [queryParams, setQueryParams] = useState({
-    type: flowType || 'taker',
     status: ''
   });
 
-  // Update type when flowType prop changes
-  React.useEffect(() => {
-    if (flowType && flowType !== queryParams.type) {
-      setQueryParams(prev => ({
-        ...prev,
-        type: flowType
-      }));
-    }
-  }, [flowType, queryParams.type]);
+  // Get the type from flowType (defaults to 'taker' if not provided)
+  const type = flowType || 'taker';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,6 +35,7 @@ const GetTradesForm: React.FC<GetTradesFormProps> = ({ state, updateState, flowT
         params: {
           environment: state.environment,
           apiKey: state.apiKey,
+          type: type,
           ...filteredParams
         }
       });
@@ -64,22 +57,7 @@ const GetTradesForm: React.FC<GetTradesFormProps> = ({ state, updateState, flowT
 
   return (
     <div className="form-container">
-      <p>Retrieve trades filtered by type and status</p>
       <form onSubmit={handleSubmit}>
-        <div className="form-group">
-          <label>Type:</label>
-          <select
-            name="type"
-            value={queryParams.type}
-            onChange={handleChange}
-          >
-            <option value="taker">Taker</option>
-            <option value="maker">Maker</option>
-          </select>
-          <small className="form-hint">
-            Filter by trade type (defaults to taker)
-          </small>
-        </div>
         <div className="form-group">
           <label>Status:</label>
           <select

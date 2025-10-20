@@ -191,9 +191,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
 
   const getStepStatus = (step: WorkflowStep) => {
     // Return 'hidden' for steps not relevant to current flow
-    if (flowType === 'taker') {
-      if (step === 'getTrades') return 'hidden';
-    } else {
+    if (flowType === 'maker') {
       if (step === 'quote' || step === 'trade') return 'hidden';
     }
 
@@ -425,19 +423,19 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               {renderStepIndicator('trade', 2, 'Trade')}
               <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
-              {renderStepIndicator('presign', 3, 'Presign')}
+              {renderStepIndicator('getTrades', 3, 'Get Trades')}
               <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
-              {renderStepIndicator('sign', 4, 'Sign')}
+              {renderStepIndicator('presign', 4, 'Presign')}
               <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
-              {renderStepIndicator('register', 5, 'Register')}
+              {renderStepIndicator('sign', 5, 'Sign')}
               <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
-              {renderStepIndicator('deliver', 6, 'Deliver')}
+              {renderStepIndicator('register', 6, 'Register')}
               <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
-              {renderStepIndicator('complete', 7, 'Complete')}
+              {renderStepIndicator('deliver', 7, 'Deliver')}
             </>
           ) : (
             <>
@@ -454,31 +452,9 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
               
               {renderStepIndicator('deliver', 5, 'Deliver')}
-              <div style={{ fontSize: '1.2rem', color: getArrowColor() }}>→</div>
-              
-              {renderStepIndicator('complete', 6, 'Complete')}
             </>
           )}
         </div>
-
-        {/* Reset Button */}
-        {(workflowData.quoteComplete || workflowData.tradeComplete || workflowData.getTradesComplete || workflowData.presignComplete || workflowData.signComplete || workflowData.registerComplete || workflowData.deliveryComplete) && (
-          <button
-            onClick={resetWorkflow}
-            style={{
-              marginLeft: '2rem',
-              padding: '0.5rem 1rem',
-              border: '1px solid #e2e8f0',
-              borderRadius: '6px',
-              backgroundColor: 'white',
-              color: '#4a5568',
-              cursor: 'pointer',
-              fontSize: '0.9rem'
-            }}
-          >
-            🔄 Reset Workflow
-          </button>
-        )}
       </div>
 
       <div className="page-content" style={{ maxWidth: 'none', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -493,10 +469,10 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               width: '100%'
             }}>
               <h2 style={{ marginBottom: '0.5rem', color: '#2d3748', textAlign: 'center' }}>
-                Create Quote
+                Request for Quote
               </h2>
               <p style={{ marginBottom: '1rem', color: '#718096', textAlign: 'center' }}>
-                Generate a price quote for your currency exchange. This establishes the trading terms and rate.
+                Request a quote for your stablecoin exchange. This establishes the trading terms and rate.
               </p>
               
               <QuoteCreationForm state={state} updateState={handleQuoteUpdate} />
@@ -540,7 +516,7 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
           </div>
         )}
 
-        {/* Get Trades (Maker Flow) */}
+        {/* Get Trades */}
         {currentStep === 'getTrades' && (
           <div className="form-section" style={{ width: '100%' }}>
             <div style={{ 
@@ -554,7 +530,10 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
                 Get Available Trades
               </h2>
               <p style={{ marginBottom: '1rem', color: '#718096', textAlign: 'center' }}>
-                Retrieve trades where you can act as a maker. Filter by type: "maker" to see trades you can fulfill.
+                {flowType === 'taker' 
+                  ? 'Retrieve your created trades. Filter by type: "taker" to see trades where you are the taker.'
+                  : 'Retrieve trades where you can act as a maker. Filter by type: "maker" to see trades you can fulfill.'
+                }
               </p>
               
               <GetTradesForm state={state} updateState={handleGetTradesUpdate} flowType={flowType} />
