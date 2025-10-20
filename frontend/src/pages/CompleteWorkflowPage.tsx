@@ -469,10 +469,10 @@ const CompleteWorkflowPage: React.FC<CompleteWorkflowPageProps> = ({ state, upda
               width: '100%'
             }}>
               <h2 style={{ marginBottom: '0.5rem', color: '#2d3748', textAlign: 'center' }}>
-                Create Quote
+                Request for Quote
               </h2>
               <p style={{ marginBottom: '1rem', color: '#718096', textAlign: 'center' }}>
-                Generate a price quote for your currency exchange. This establishes the trading terms and rate.
+                Request a quote for your stablecoin exchange. This establishes the trading terms and rate.
               </p>
               
               <QuoteCreationForm state={state} updateState={handleQuoteUpdate} />

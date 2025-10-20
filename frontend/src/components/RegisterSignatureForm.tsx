@@ -22,19 +22,20 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
   const type = flowType || 'taker';
 
   // Auto-populate address based on type (maker/taker) from configured addresses
+  // Only populate if the field is empty to allow manual updates
   useEffect(() => {
     const configuredAddress = type === 'maker' 
       ? state.makerWalletAddress 
       : state.takerWalletAddress;
     
-    if (configuredAddress && formData.address !== configuredAddress) {
+    if (configuredAddress && !formData.address) {
       setFormData(prev => ({
         ...prev,
         address: configuredAddress
       }));
       console.log(`📍 Using configured ${type} wallet address:`, configuredAddress);
     }
-  }, [type, state.makerWalletAddress, state.takerWalletAddress, formData.address]);
+  }, [type, state.makerWalletAddress, state.takerWalletAddress]);
 
   // Auto-populate form when signing response is available
   useEffect(() => {
@@ -92,8 +93,7 @@ const RegisterSignatureForm: React.FC<RegisterSignatureFormProps> = ({ state, up
           signature: signature,
           details: details,
           address: address,
-          tradeId: autoTradeId,
-          type: autoType
+          tradeId: autoTradeId
         }));
         setJustAutoLoaded(true);
         console.log('✅ Auto-populated signature registration form');
