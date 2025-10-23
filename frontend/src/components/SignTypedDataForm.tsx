@@ -313,9 +313,9 @@ const SignTypedDataForm: React.FC<SignTypedDataFormProps> = ({ state, updateStat
     }
 
     // Validation for Circle signing
-    if (!state.walletApiKey || !state.entitySecret) {
+    if (!state.walletApiKey || !state.entitySecret || !state.publicKeyPem) {
       updateState({ 
-        signingError: 'Please configure your Wallet API Key and Entity Secret in Settings for Circle signing',
+        signingError: 'Please configure your Wallet API Key, Entity Secret, and Public Key PEM in Settings for Circle signing',
         signingResponse: null 
       });
       return;
@@ -336,6 +336,8 @@ const SignTypedDataForm: React.FC<SignTypedDataFormProps> = ({ state, updateStat
       const response = await axios.post('http://localhost:3001/api/wallet/sign/typedData', {
         walletApiKey: state.walletApiKey,
         entitySecret: state.entitySecret,
+        publicKeyPem: state.publicKeyPem,
+        environment: state.environment,
         walletId: formData.walletId,
         typedData: formData.typedData
       });

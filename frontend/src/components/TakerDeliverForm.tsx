@@ -161,8 +161,8 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       return;
     }
 
-    if (!state.walletApiKey || !state.entitySecret || !formData.walletId) {
-      setError('Circle credentials (API Key, Entity Secret, Wallet ID) are required to sign with programmable wallet');
+    if (!state.walletApiKey || !state.entitySecret || !state.publicKeyPem || !formData.walletId) {
+      setError('Circle credentials (API Key, Entity Secret, Public Key PEM, Wallet ID) are required to sign with programmable wallet');
       return;
     }
 
@@ -175,6 +175,8 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       const signingPayload = {
         walletApiKey: state.walletApiKey,
         entitySecret: state.entitySecret,
+        publicKeyPem: state.publicKeyPem,
+        environment: state.environment,
         walletId: formData.walletId,
         typedData: parsedTypedData
       };
@@ -216,8 +218,8 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       return;
     }
 
-    if (!state.walletApiKey || !state.entitySecret || !formData.walletId) {
-      setPermit2ApprovalError('Circle credentials (API Key, Entity Secret, Wallet ID) are required');
+    if (!state.walletApiKey || !state.entitySecret || !state.publicKeyPem || !formData.walletId) {
+      setPermit2ApprovalError('Circle credentials (API Key, Entity Secret, Public Key PEM, Wallet ID) are required');
       return;
     }
 
@@ -229,6 +231,8 @@ const TakerDeliverForm: React.FC<TakerDeliverFormProps> = ({ state, updateState,
       const approvalPayload = {
         walletApiKey: state.walletApiKey,
         entitySecret: state.entitySecret,
+        publicKeyPem: state.publicKeyPem,
+        environment: state.environment,
         walletId: formData.walletId,
         typedData: editableTypedData,
         refId: `permit2-approval-${Date.now()}`
