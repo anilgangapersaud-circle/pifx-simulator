@@ -49,4 +49,5 @@ You'll need to run both the backend and frontend servers:
    The frontend will run on `http://localhost:3000`
 
 
-If you have any troubles calling APIs, ensure the local StableFX SDK is installed
+If you have any troubles calling APIs, ensure the local StableFX SDK is installed.
+Reach out to Anil if you need a copy of the SDK
