@@ -21,7 +21,7 @@ app.post('/api/quotes', async (req, res) => {
     
     const client = initializeStableFXClient({ 
       apiKey, 
-      environment: Environment.Smokebox 
+      environment: environment === 'sandbox' ? Environment.Sandbox : Environment.Smokebox 
     });
     
     const response = await client.createQuote({ quoteRequest: requestBody });
@@ -40,7 +40,7 @@ app.post('/api/trades', async (req, res) => {
     
     const client = initializeStableFXClient({ 
       apiKey, 
-      environment: Environment.Smokebox 
+      environment: environment === 'sandbox' ? Environment.Sandbox : Environment.Smokebox 
     });
     
     const response = await client.createTrade({ tradeRequest: requestBody });
@@ -59,7 +59,7 @@ app.post('/api/signatures', async (req, res) => {
     
     const client = initializeStableFXClient({ 
       apiKey, 
-      environment: Environment.Smokebox 
+      environment: environment === 'sandbox' ? Environment.Sandbox : Environment.Smokebox 
     });
     
     const response = await client.registerTradeSignature({
@@ -77,7 +77,7 @@ app.post('/api/signatures', async (req, res) => {
 
 app.post('/api/signatures/funding/presign', async (req, res) => {
   try {
-    const { apiKey, contractTradeIds, traderType, fundingMode } = req.body;
+    const { apiKey, environment, contractTradeIds, traderType, fundingMode } = req.body;
     
     if (!contractTradeIds || !Array.isArray(contractTradeIds) || contractTradeIds.length === 0) {
       return res.status(400).json({
@@ -99,7 +99,7 @@ app.post('/api/signatures/funding/presign', async (req, res) => {
     
     const client = initializeStableFXClient({
       apiKey,
-      environment: Environment.Smokebox
+      environment: environment === 'sandbox' ? Environment.Sandbox : Environment.Smokebox
     });
 
     const type: Type = traderType === 'taker' ? Type.taker : Type.maker;
@@ -139,11 +139,11 @@ app.post('/api/signatures/funding/presign', async (req, res) => {
 
 app.get('/api/trades', async (req, res) => {
   try {
-    const { apiKey, type, status, pageSize, from, to } = req.query;
+    const { apiKey, environment, type, status, pageSize, from, to } = req.query;
     
     const client = initializeStableFXClient({
       apiKey: apiKey as string,
-      environment: Environment.Smokebox
+      environment: environment === 'sandbox' ? Environment.Sandbox : Environment.Smokebox
     });
 
     const traderType: Type = (type as string)?.toLowerCase() === 'taker' ? Type.taker : Type.maker;
@@ -172,11 +172,11 @@ app.get('/api/trades', async (req, res) => {
 app.get('/api/trades/:tradeId', async (req, res) => {
   try {
     const { tradeId } = req.params;
-    const { apiKey, type } = req.query;
+    const { apiKey, environment, type } = req.query;
     
     const client = initializeStableFXClient({
       apiKey: apiKey as string,
-      environment: Environment.Smokebox
+      environment: environment === 'sandbox' ? Environment.Sandbox : Environment.Smokebox
     });
 
     const tradeType: Type = (type as string)?.toLowerCase() === 'taker' ? Type.taker : Type.maker;
@@ -202,7 +202,7 @@ app.get('/api/signatures/presign/:type/:tradeId', async (req, res) => {
     
     const client = initializeStableFXClient({ 
       apiKey: apiKey as string, 
-      environment: Environment.Smokebox 
+      environment: environment === 'sandbox' ? Environment.Sandbox : Environment.Smokebox 
     });
     
     const traderType: Type = type === 'taker' ? Type.taker : Type.maker;
@@ -224,11 +224,11 @@ app.get('/api/signatures/presign/:type/:tradeId', async (req, res) => {
 
 app.post('/api/wallet/sign/typedData', async (req, res) => {
   try {
-    const { walletApiKey, entitySecret, ...requestBody } = req.body;
+    const { walletApiKey, entitySecret, publicKeyPem, environment, ...requestBody } = req.body;
     
-    if (!walletApiKey || !entitySecret) {
+    if (!walletApiKey || !entitySecret || !publicKeyPem) {
       return res.status(400).json({
-        error: 'Both walletApiKey and entitySecret are required'
+        error: 'walletApiKey, entitySecret, and publicKeyPem are required'
       });
     }
 
@@ -276,7 +276,11 @@ app.post('/api/wallet/sign/typedData', async (req, res) => {
       'POST',
       walletApiKey,
       entitySecret,
-      circleRequest
+      circleRequest,
+      undefined,
+      undefined,
+      publicKeyPem,
+      environment
     );
     
     res.json(response.data);
@@ -354,7 +358,7 @@ app.post('/api/fund', async (req, res) => {
 
     const client = initializeStableFXClient({
       apiKey,
-      environment: Environment.Smokebox
+      environment: environment === 'sandbox' ? Environment.Sandbox : Environment.Smokebox
     });
 
     const tradeType: Type = type.toLowerCase() === 'taker' ? Type.taker : Type.maker;
@@ -415,7 +419,7 @@ app.post('/api/takerDeliver', async (req, res) => {
     
     const client = initializeStableFXClient({
       apiKey,
-      environment: Environment.Smokebox
+      environment: environment === 'sandbox' ? Environment.Sandbox : Environment.Smokebox
     });
 
     const fundRequest: FundRequest = {
@@ -445,7 +449,7 @@ app.post('/api/takerBatchDeliver', async (req, res) => {
     
     const client = initializeStableFXClient({
       apiKey,
-      environment: Environment.Smokebox
+      environment: environment === 'sandbox' ? Environment.Sandbox : Environment.Smokebox
     });
 
     const fundRequest: FundRequest = {
@@ -475,7 +479,7 @@ app.post('/api/makerDeliver', async (req, res) => {
     
     const client = initializeStableFXClient({
       apiKey,
-      environment: Environment.Smokebox
+      environment: environment === 'sandbox' ? Environment.Sandbox : Environment.Smokebox
     });
 
     const fundRequest: FundRequest = {
@@ -505,7 +509,7 @@ app.post('/api/makerBatchDeliver', async (req, res) => {
     
     const client = initializeStableFXClient({
       apiKey,
-      environment: Environment.Smokebox
+      environment: environment === 'sandbox' ? Environment.Sandbox : Environment.Smokebox
     });
 
     const fundRequest: FundRequest = {
@@ -535,7 +539,7 @@ app.post('/api/makerNetDeliver', async (req, res) => {
     
     const client = initializeStableFXClient({
       apiKey,
-      environment: Environment.Smokebox
+      environment: environment === 'sandbox' ? Environment.Sandbox : Environment.Smokebox
     });
 
     const fundRequest: FundRequest = {
@@ -560,11 +564,11 @@ app.post('/api/makerNetDeliver', async (req, res) => {
 
 app.post('/api/approvePermit2', async (req, res) => {
   try {
-    const { walletApiKey, entitySecret, walletId, typedData, amount, refId } = req.body;
+    const { walletApiKey, entitySecret, publicKeyPem, environment, walletId, typedData, amount, refId } = req.body;
 
-    if (!walletApiKey || !entitySecret || !walletId) {
+    if (!walletApiKey || !entitySecret || !publicKeyPem || !walletId) {
       return res.status(400).json({
-        error: 'walletApiKey, entitySecret, and walletId are required'
+        error: 'walletApiKey, entitySecret, publicKeyPem, and walletId are required'
       });
     }
 
@@ -665,7 +669,9 @@ app.post('/api/approvePermit2', async (req, res) => {
       entitySecret,
       contractExecutionRequest,
       undefined,
-      idempotencyKey
+      idempotencyKey,
+      publicKeyPem,
+      environment
     );
 
     res.json(response.data);
@@ -694,7 +700,7 @@ app.post('/api/approvePermit2', async (req, res) => {
 
 app.post('/api/getTokenBalance', async (req, res) => {
   try {
-    const { walletApiKey, walletId } = req.body;
+    const { walletApiKey, walletId, environment } = req.body;
 
     if (!walletApiKey || !walletId) {
       return res.status(400).json({
@@ -709,7 +715,10 @@ app.post('/api/getTokenBalance', async (req, res) => {
         walletApiKey,
         undefined,
         undefined,
-        walletId
+        walletId,
+        undefined,
+        undefined,
+        environment
       ),
       callCircleWalletAPI(
         '/v1/w3s/wallets/{id}/balances',
@@ -717,7 +726,10 @@ app.post('/api/getTokenBalance', async (req, res) => {
         walletApiKey,
         undefined,
         undefined,
-        walletId
+        walletId,
+        undefined,
+        undefined,
+        environment
       )
     ]);
 
@@ -759,24 +771,35 @@ app.post('/api/getTokenBalance', async (req, res) => {
   }
 });
 
-async function generateEntitySecretCiphertextManually(apiKey: string, entitySecret: string): Promise<string> {
+// Endpoint to generate entity secret ciphertext (for testing/verification)
+app.post('/api/generateEntitySecretCiphertext', async (req, res) => {
+  try {
+    const { entitySecret, publicKeyPem } = req.body;
+
+    if (!entitySecret || !publicKeyPem) {
+      return res.status(400).json({
+        error: 'Both entitySecret and publicKeyPem are required'
+      });
+    }
+
+    const ciphertext = await generateEntitySecretCiphertextManually('', entitySecret, publicKeyPem);
+    
+    res.json({ 
+      ciphertext,
+      length: ciphertext.length
+    });
+  } catch (error: any) {
+    console.error('❌ Error generating entity secret ciphertext:', error);
+    res.status(500).json({
+      error: error.message || 'Failed to generate entity secret ciphertext',
+      details: error.toString()
+    });
+  }
+});
+
+async function generateEntitySecretCiphertextManually(apiKey: string, entitySecret: string, publicKeyPem: string): Promise<string> {
   try {
     console.log('🔄 Generating entity secret ciphertext with RSA-OAEP encryption...');
-    
-    const publicKeyPem = `-----BEGIN PUBLIC KEY-----
-MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAyV7p/zStlMgMSol1cLhc
-eQv+tCXljEOFN34r484vAMrah8mXRLBXoAwMJEWgGKP2utMdhaEPRi3KoreAw7xS
-XF0e1v+I90zgBcSvxd8TX3d4XPjPxFI2Ko5t2Tc0HeEas57xyrAGFdDWhgJVgBvA
-SIrhsswhP1pnj3kAHtS9pNcWFVO1ymYbWypjHpX8niDIziw1DkA2b7tD1N8I5k9s
-gKdDsrNlWWscZxzpRmGICmW6G/rP+pLl2bGigJlKW3hDxVFXDsQbzD2L/qzWbc74
-iyX9UcdGCFh5/Wfplo+pvdn74vJAqBt5DXJ10wdBX8DNaFTLMd+C1Y1/hb0coRtB
-WklJuckrQAJ3mMoh4uYc7J5bL0gf5a1TGo9dBCibTsj1SA6hSb/TIYuaDW8QGZpU
-4/FJHRgHjd/tdhXwyrGeRypxNtOQsu3fvD0mlSyBWZi4mvCkiVT9peUVVcyQGa9W
-9rF6EVkx7icIoPvciiOUO79mr/6UB7U99uX22U1ksGQIplxCcoGbVK87FqeM+bBu
-Ls/YDuUNbYCcQGU5fVAjItKFIxxa5RunSlV/gfzz7Vtqu931vMDsRyrJ05HzDZ/J
-snULX2cSoBqlLeD03YpMiFZ5wPPU7rbbMwWq3WhDjJL1IlGB4n6F7Ultu2VgASo4
-LoOYfEiKkkueIix1Kdwvuu0CAwEAAQ==
------END PUBLIC KEY-----`;
     
     const entitySecretBytes = forge.util.hexToBytes(entitySecret);
     const publicKey = forge.pki.publicKeyFromPem(publicKeyPem);
@@ -798,8 +821,9 @@ LoOYfEiKkkueIix1Kdwvuu0CAwEAAQ==
   }
 }
 
-const callCircleWalletAPI = async (endpoint: string, method: 'GET' | 'POST', apiKey: string, entitySecret?: string, data?: any, walletId?: string, idempotencyKey?: string) => {
-  const baseUrl = 'https://api-staging.circle.com';
+const callCircleWalletAPI = async (endpoint: string, method: 'GET' | 'POST', apiKey: string, entitySecret?: string, data?: any, walletId?: string, idempotencyKey?: string, publicKeyPem?: string, environment?: string) => {
+  // Use api.circle.com for sandbox, api-staging.circle.com for smokebox (default)
+  const baseUrl = environment === 'sandbox' ? 'https://api.circle.com' : 'https://api-staging.circle.com';
   const url = walletId ? `${baseUrl}${endpoint.replace('{id}', walletId)}` : `${baseUrl}${endpoint}`;
   
   const headers: any = {
@@ -814,8 +838,8 @@ const callCircleWalletAPI = async (endpoint: string, method: 'GET' | 'POST', api
   };
 
   if (method === 'POST' && data) {
-    if (entitySecret) {
-      data.entitySecretCiphertext = await generateEntitySecretCiphertextManually(apiKey, entitySecret);
+    if (entitySecret && publicKeyPem) {
+      data.entitySecretCiphertext = await generateEntitySecretCiphertextManually(apiKey, entitySecret, publicKeyPem);
     }
     config.data = data;
   }

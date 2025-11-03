@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import axios from 'axios';
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -9,6 +10,8 @@ interface SettingsPanelProps {
   onWalletApiKeyChange: (walletApiKey: string) => void;
   entitySecret: string;
   onEntitySecretChange: (entitySecret: string) => void;
+  publicKeyPem: string;
+  onPublicKeyPemChange: (publicKeyPem: string) => void;
   makerWalletId: string;
   onMakerWalletIdChange: (makerWalletId: string) => void;
   takerWalletId: string;
@@ -30,6 +33,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onWalletApiKeyChange,
   entitySecret,
   onEntitySecretChange,
+  publicKeyPem,
+  onPublicKeyPemChange,
   makerWalletId,
   onMakerWalletIdChange,
   takerWalletId,
@@ -41,6 +46,39 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   environment,
   onEnvironmentChange
 }) => {
+  const [ciphertext, setCiphertext] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState('');
+
+  const generateCiphertext = async () => {
+    if (!entitySecret || !publicKeyPem) {
+      setGenerateError('Both Entity Secret and Public Key PEM are required');
+      return;
+    }
+
+    setGenerating(true);
+    setGenerateError('');
+    setCiphertext('');
+
+    try {
+      const response = await axios.post('http://localhost:3001/api/generateEntitySecretCiphertext', {
+        entitySecret,
+        publicKeyPem
+      });
+
+      setCiphertext(response.data.ciphertext);
+    } catch (error: any) {
+      console.error('Error generating ciphertext:', error);
+      setGenerateError(error.response?.data?.error || error.message || 'Failed to generate ciphertext');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const copyCiphertext = () => {
+    navigator.clipboard.writeText(ciphertext);
+  };
+
   return (
     <>
       {/* Overlay */}
@@ -120,6 +158,92 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
             <p className="settings-help">
               Required for wallet authentication
             </p>
+          </div>
+
+          <div className="settings-group">
+            <label htmlFor="public-key-pem">Programmable Wallet Public Key</label>
+            <input
+              id="public-key-pem"
+              type="password"
+              value={publicKeyPem}
+              onChange={(e) => onPublicKeyPemChange(e.target.value)}
+              placeholder="Enter your programmable wallet public key PEM"
+              className="settings-input"
+            />
+            <p className="settings-help">
+              Public key for encrypting entity secret (RSA-OAEP)
+            </p>
+          </div>
+
+          <div className="settings-group" style={{ backgroundColor: '#f7fafc', padding: '1rem', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+            <label style={{ fontWeight: 'bold', color: '#2d3748' }}>Generate Entity Secret Ciphertext</label>
+            <p className="settings-help" style={{ marginTop: '0.5rem', marginBottom: '1rem' }}>
+              Test your entity secret encryption by generating the ciphertext
+            </p>
+            <button
+              type="button"
+              onClick={generateCiphertext}
+              disabled={generating || !entitySecret || !publicKeyPem}
+              style={{
+                backgroundColor: generating ? '#cbd5e0' : '#4299e1',
+                color: 'white',
+                padding: '0.5rem 1rem',
+                borderRadius: '4px',
+                border: 'none',
+                cursor: generating || !entitySecret || !publicKeyPem ? 'not-allowed' : 'pointer',
+                fontWeight: '500',
+                marginBottom: '0.5rem'
+              }}
+            >
+              {generating ? 'Generating...' : 'Generate Ciphertext'}
+            </button>
+            
+            {generateError && (
+              <p style={{ color: '#e53e3e', fontSize: '0.875rem', marginTop: '0.5rem' }}>
+                {generateError}
+              </p>
+            )}
+            
+            {ciphertext && (
+              <div style={{ marginTop: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <label style={{ fontSize: '0.875rem', fontWeight: '500' }}>Generated Ciphertext:</label>
+                  <button
+                    type="button"
+                    onClick={copyCiphertext}
+                    style={{
+                      backgroundColor: '#48bb78',
+                      color: 'white',
+                      padding: '0.25rem 0.75rem',
+                      borderRadius: '4px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: '0.875rem'
+                    }}
+                  >
+                    Copy
+                  </button>
+                </div>
+                <textarea
+                  readOnly
+                  value={ciphertext}
+                  style={{
+                    width: '100%',
+                    minHeight: '100px',
+                    fontFamily: 'monospace',
+                    fontSize: '0.75rem',
+                    padding: '0.5rem',
+                    border: '1px solid #cbd5e0',
+                    borderRadius: '4px',
+                    backgroundColor: 'white',
+                    resize: 'vertical'
+                  }}
+                />
+                <p style={{ fontSize: '0.75rem', color: '#718096', marginTop: '0.5rem' }}>
+                  Length: {ciphertext.length} characters
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="settings-group">

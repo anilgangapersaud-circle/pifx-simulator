@@ -20,6 +20,7 @@ export interface AppState {
   apiKey: string;
   walletApiKey: string;
   entitySecret: string;
+  publicKeyPem: string;
   walletId: string; // Keep for backward compatibility
   makerWalletId: string;
   takerWalletId: string;
@@ -61,6 +62,7 @@ const SESSION_KEYS = {
   API_KEY: 'circle_api_key',
   WALLET_API_KEY: 'circle_wallet_api_key',
   ENTITY_SECRET: 'circle_entity_secret',
+  PUBLIC_KEY_PEM: 'circle_public_key_pem',
   MAKER_WALLET_ID: 'circle_maker_wallet_id',
   TAKER_WALLET_ID: 'circle_taker_wallet_id',
   MAKER_WALLET_ADDRESS: 'circle_maker_wallet_address',
@@ -99,6 +101,7 @@ const clearSession = () => {
     sessionStorage.removeItem(SESSION_KEYS.API_KEY);
     sessionStorage.removeItem(SESSION_KEYS.WALLET_API_KEY);
     sessionStorage.removeItem(SESSION_KEYS.ENTITY_SECRET);
+    sessionStorage.removeItem(SESSION_KEYS.PUBLIC_KEY_PEM);
     sessionStorage.removeItem(SESSION_KEYS.MAKER_WALLET_ID);
     sessionStorage.removeItem(SESSION_KEYS.TAKER_WALLET_ID);
     sessionStorage.removeItem(SESSION_KEYS.ENVIRONMENT);
@@ -120,6 +123,7 @@ function AppContent() {
     apiKey: getFromSession(SESSION_KEYS.API_KEY, ''),
     walletApiKey: getFromSession(SESSION_KEYS.WALLET_API_KEY, ''),
     entitySecret: getFromSession(SESSION_KEYS.ENTITY_SECRET, ''),
+    publicKeyPem: getFromSession(SESSION_KEYS.PUBLIC_KEY_PEM, ''),
     walletId: legacyWalletId, // Keep for migration purposes only
     makerWalletId: makerWalletId,
     takerWalletId: takerWalletId,
@@ -261,6 +265,9 @@ function AppContent() {
     if (updates.entitySecret !== undefined) {
       saveToSession(SESSION_KEYS.ENTITY_SECRET, updates.entitySecret);
     }
+    if (updates.publicKeyPem !== undefined) {
+      saveToSession(SESSION_KEYS.PUBLIC_KEY_PEM, updates.publicKeyPem);
+    }
     if (updates.makerWalletId !== undefined) {
       saveToSession(SESSION_KEYS.MAKER_WALLET_ID, updates.makerWalletId);
     }
@@ -329,6 +336,8 @@ function AppContent() {
         onWalletApiKeyChange={(walletApiKey) => updateState({ walletApiKey })}
         entitySecret={state.entitySecret}
         onEntitySecretChange={(entitySecret) => updateState({ entitySecret })}
+        publicKeyPem={state.publicKeyPem}
+        onPublicKeyPemChange={(publicKeyPem) => updateState({ publicKeyPem })}
         makerWalletId={state.makerWalletId}
         onMakerWalletIdChange={(makerWalletId) => updateState({ makerWalletId })}
         takerWalletId={state.takerWalletId}
